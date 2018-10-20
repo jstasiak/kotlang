@@ -1,2 +1,2 @@
-extern "sdl2" def SDL_Init(flags: u32) -> i64;
-extern "sdl2" def SDL_Quit() -> void;
+extern "SDL2" def SDL_Init(flags: u32) -> i64;
+extern "SDL2" def SDL_Quit() -> void;
