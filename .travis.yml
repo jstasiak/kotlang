@@ -4,6 +4,8 @@ matrix:
     include:
         - { python: "3.7", dist: xenial, sudo: true }
         - { python: "3.7", os: osx, sudo: false }
+before_install:
+  - if [[ "${TRAVIS_OS_NAME}" == "linux" ]] ; then sudo apt update; sudo apt install libsdl2-dev; else brew install sdl2; fi;
 install: pip install '.[dev]'
 script:
     - make ci
