@@ -1,0 +1,6 @@
+// ...
+extern define asd();
+-------^
+
+// ...
+Cannot parse bad_syntax.kot: Unexpected token: 'define', expected one of: ['def']

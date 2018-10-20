@@ -1,0 +1,494 @@
+from collections import OrderedDict
+import os
+from typing import cast, Iterator, List, MutableMapping, Optional, Tuple, Union
+
+from kotlang import ast
+from kotlang.itertools import Peekable
+from kotlang.lexer import lex, Token, TokenType
+
+
+def parse(text: str, name: str) -> ast.Module:
+    tokens = Peekable(lex(text))
+    try:
+        module = read_module(tokens)
+    except UnexpectedToken as e:
+        context = context_with_pointer(text, e.token.line, e.token.column)
+        raise ParseError(context, str(e))
+    return module
+
+
+def context_with_pointer(text: str, line: int, column: int) -> str:
+    lines = text.split('\n')
+    return '\n'.join([
+        '// ...',
+        '\n'.join(lines[max(line - 5, 0):line + 1]),
+        '-' * column + '^',
+        '\n'.join(lines[line + 1:line + 5 + 1]),
+        '// ...',
+    ])
+
+
+class ParseError(Exception):
+    def __init__(self, context: str, message: str) -> None:
+        self.context = context
+        self.message = message
+        super().__init__(context, message)
+
+
+ExpectedTokenT = Union[TokenType, Token, str]
+
+
+class UnexpectedToken(Exception):
+    def __init__(self, token: Token, expected: List[ExpectedTokenT]) -> None:
+        self.token = token
+        message = f'Unexpected token: {repr(token.text)}'
+        if expected:
+            message += f', expected one of: {list(expected)}'
+        super().__init__(message)
+
+
+def expect(tokens: Peekable[Token], *what: ExpectedTokenT) -> Token:
+    token = expect_no_eat(tokens, *what)
+    next(tokens)
+    return token
+
+
+def expect_no_eat(tokens: Peekable[Token], *what: ExpectedTokenT) -> Token:
+    next_token = tokens.peek()
+
+    for w in what:
+        if (
+            isinstance(w, TokenType) and next_token.type == w or
+            isinstance(w, str) and next_token.text == w or
+            next_token == w
+        ):
+            return next_token
+    raise UnexpectedToken(next_token, list(what))
+
+
+def read_module(tokens: Peekable[Token]) -> ast.Module:
+    # Module = (FunctionDefinition | FunctionDeclaration | StructDefinition)*;
+    functions = []
+    structs = []
+    imports = []
+    while tokens.peek().type is not TokenType.eof:
+        next_text = expect_no_eat(tokens, 'def', 'extern', 'struct', 'import').text
+        if next_text == 'extern':
+            functions.append(read_function_declaration(tokens))
+        elif next_text == 'def':
+            functions.append(read_function_definition(tokens))
+        elif next_text == 'import':
+            imports.append(read_import(tokens))
+        else:
+            structs.append(read_struct_definition(tokens))
+    return ast.Module(structs, functions, imports)
+
+
+def read_struct_definition(tokens: Peekable[Token]) -> ast.Struct:
+    # StructDefinition = "struct" name "{" StructMembers "}";
+    # StructMembers = StructMember ";" [StructMembers] | empty;
+    # StructMember = name ":" name;
+    expect(tokens, 'struct')
+    name = expect(tokens, TokenType.identifier).text
+    expect(tokens, '{')
+
+    members: List[Tuple[str, str]] = []
+
+    while tokens.peek().text != '}':
+        member_name = expect(tokens, TokenType.identifier)
+        expect(tokens, ':')
+        member_type = expect(tokens, TokenType.identifier)
+        expect(tokens, ';')
+        assert member_name.text not in members
+        members.append((member_name.text, member_type.text))
+    expect(tokens, '}')
+    return ast.Struct(name, members)
+
+
+def read_function_declaration(tokens: Peekable[Token]) -> ast.Function:
+    expect(tokens, 'extern')
+    foreign_library = None
+    if tokens.peek().type is TokenType.string_literal:
+        foreign_library = expect(tokens, TokenType.string_literal).text[1:-1]
+    name, type_parameters, parameters, return_type = read_function_header(tokens)
+    assert not type_parameters
+    expect(tokens, ';')
+    return ast.Function(name, [], parameters, return_type, None, foreign_library)
+
+
+def read_function_definition(tokens: Peekable[Token]) -> ast.Function:
+    name, type_parameters, parameters, return_type = read_function_header(tokens)
+    code_block = read_code_block(tokens)
+    return ast.Function(name, type_parameters, parameters, return_type, code_block)
+
+
+def read_import(tokens: Peekable[Token]) -> Tuple[str, ast.Module]:
+    expect(tokens, 'import')
+    module_name = expect(tokens, TokenType.identifier).text
+    expect(tokens, ';')
+    text = read_module_text(module_name)
+    return (module_name, parse(text, module_name))
+
+
+def read_module_text(name: str) -> str:
+    with open(os.path.join('modules', f'{name}.kot')) as f:
+        return f.read()
+
+
+def read_function_header(tokens: Peekable[Token]) -> Tuple[str, List[str], ast.ParameterList, str]:
+    expect(tokens, 'def')
+    name = expect(tokens, TokenType.identifier)
+    type_parameters = []
+    if tokens.peek().text == '<':
+        next(tokens)
+        while tokens.peek().text != '>':
+            type_ = expect(tokens, TokenType.identifier).text
+            type_parameters.append(type_)
+            if tokens.peek().text != ',':
+                assert tokens.peek().text == '>'
+        expect(tokens, '>')
+
+    expect(tokens, '(')
+    parameters = read_function_parameters(tokens)
+    expect(tokens, ')')
+    expect(tokens, '->')
+    return_type = expect(tokens, TokenType.identifier).text
+    return name.text, type_parameters, parameters, return_type
+
+
+def read_function_parameters(tokens: Peekable[Token]) -> ast.ParameterList:
+    parameters = []
+    variadic = False
+    while tokens.peek().text != ')':
+        if tokens.peek().text == '...':
+            next(tokens)
+            variadic = True
+            break
+
+        name = read_variable_name(tokens)
+        expect(tokens, ':')
+        type_ = read_type_reference(tokens)
+        parameters.append(ast.Parameter(name, type_))
+        if tokens.peek().text == ',':
+            next(tokens)
+    return ast.ParameterList(parameters, variadic=variadic)
+
+
+def read_variable_name(tokens: Peekable[Token]) -> str:
+    return expect(tokens, TokenType.identifier).text
+
+
+def read_type_reference(tokens: Peekable[Token]) -> ast.TypeReference:
+    base_name = expect(tokens, TokenType.identifier)
+    reference: ast.TypeReference = ast.BaseTypeReference(base_name.text)  # noqa: E701
+    while tokens.peek().text == '*':
+        next(tokens)
+        reference = reference.as_pointer()
+    return reference
+
+
+def read_code_block(tokens: Peekable[Token]) -> ast.CodeBlock:
+    # CodeBlock = "{" Statement* "}"
+    expect(tokens, '{')
+    statements = []
+    while tokens.peek().text != '}':
+        statements.append(read_statement(tokens))
+    expect(tokens, '}')
+    return ast.CodeBlock(statements)
+
+
+def read_statement(tokens: Peekable[Token], *, eat_semicolon: bool = True) -> ast.Statement:
+    # Statement = CodeBlock | IfStatement | PatternMatch
+    #           | (ReturnStatement | Expression | VariableDeclaration) ";";
+    next_token = tokens.peek()
+    needs_semicolon = True
+    statement: ast.Statement
+
+    if next_token.text == 'return':
+        next(tokens)
+        expression = None
+        if tokens.peek().text != ';':
+            expression = read_expression(tokens)
+        statement = ast.ReturnStatement(expression)
+    elif next_token.text == 'let':
+        statement = read_variable_declaration(tokens)
+    elif next_token.text == 'if':
+        statement = read_if_statement(tokens)
+        needs_semicolon = False
+    elif next_token.text == 'while':
+        statement = read_while_loop(tokens)
+        needs_semicolon = False
+    elif next_token.text == 'for':
+        statement = read_for_loop(tokens)
+        needs_semicolon = False
+    elif next_token.text == '{':
+        statement = read_code_block(tokens)
+        needs_semicolon = False
+    elif next_token.text == 'match':
+        statement = read_pattern_match(tokens)
+        needs_semicolon = False
+    elif looks_like_assignment(tokens):
+        statement = read_assignment(tokens)
+    else:
+        statement = read_expression(tokens)
+    if needs_semicolon and eat_semicolon:
+        expect(tokens, ';')
+    return statement
+
+
+def looks_like_assignment(tokens: Peekable[Token]) -> bool:
+    next_one = tokens.peek()
+    if next_one.type is not TokenType.identifier and next_one.text != '*':
+        return False
+
+    index = 0
+    while tokens.peek_nth(index).text == '*':
+        index += 1
+    index += 1
+
+    while tokens.peek_nth(index).text == '.' and tokens.peek_nth(index + 1).type is TokenType.identifier:
+        index += 2
+
+    return tokens.peek_nth(index).text == '='
+
+
+def read_assignment(tokens: Peekable[Token]) -> ast.Assignment:
+    # TODO: implement robust lvalue concept
+    dereference_level = 0
+    while tokens.peek().text == '*':
+        next(tokens)
+        dereference_level += 1
+
+    assert dereference_level < 2, 'More dereference not supported at the moment'
+
+    target: ast.MemoryReference = ast.VariableReference(expect(tokens, TokenType.identifier).text)
+    if dereference_level:
+        target = ast.ValueAt(cast(ast.VariableReference, target))
+
+    while tokens.peek().text == '.':
+        next(tokens)
+        right_name = expect(tokens, TokenType.identifier).text
+        target = ast.DotAccess(target, right_name)
+
+    expect(tokens, '=')
+    expression = read_expression(tokens)
+    return ast.Assignment(target, expression)
+
+
+def read_if_statement(tokens: Peekable[Token]) -> ast.Statement:
+    # IfStatement = "if" "(" Expression ")" CodeBlock ["else" CodeBlock]
+    expect(tokens, 'if')
+    expect(tokens, '(')
+    expression = read_expression(tokens)
+    expect(tokens, ')')
+    first_statement = read_code_block(tokens)
+    second_statement = None
+    if tokens.peek().text == 'else':
+        next(tokens)
+        second_statement = read_code_block(tokens)
+    return ast.IfStatement(expression, first_statement, second_statement)
+
+
+def read_while_loop(tokens: Peekable[Token]) -> ast.Statement:
+    # WhileLoop = "while" "(" Expression ")" CodeBlock
+    expect(tokens, 'while')
+    expect(tokens, '(')
+    condition = read_expression(tokens)
+    expect(tokens, ')')
+    body = read_code_block(tokens)
+    return ast.WhileLoop(condition, body)
+
+
+def read_for_loop(tokens: Peekable[Token]) -> ast.Statement:
+    # WhileLoop = "for" "(" Statement ";" Expression ";" Statement ")" CodeBlock
+    expect(tokens, 'for')
+    expect(tokens, '(')
+    entry = read_statement(tokens, eat_semicolon=False)
+    expect(tokens, ';')
+    condition = read_expression(tokens)
+    expect(tokens, ';')
+    step = read_statement(tokens, eat_semicolon=False)
+    expect(tokens, ')')
+    body = read_code_block(tokens)
+    return ast.ForLoop(entry, condition, step, body)
+
+
+def read_pattern_match(tokens: Peekable[Token]) -> ast.Statement:
+    # PatternMatch = "match" "(" Expression ")" "{" Patterns "}";
+    # PatternMatchArms = PatternMatchArm ["," PatternMatchArm]+ [","];
+    # PatternMatchArm = Pattern "->" Statement
+    # Pattern = Expression;
+
+    expect(tokens, 'match')
+    expect(tokens, '(')
+    match_value = read_expression(tokens)
+    expect(tokens, ')')
+    expect(tokens, '{')
+
+    arms = []
+
+    while tokens.peek().text != '}':
+        arm_pattern = read_expression(tokens)
+        expect(tokens, '->')
+        arm_body = read_expression(tokens)
+        arms.append(ast.PatternMatchArm(arm_pattern, arm_body))
+        if tokens.peek().text != ',':
+            break
+        expect(tokens, ',')
+
+    expect(tokens, '}')
+    return ast.PatternMatch(match_value, arms)
+
+
+def read_comparison_expression(tokens: Peekable[Token]) -> ast.Expression:
+    # ComparisonExpression = AddExpression [("<" | ">" | "<=" | ">=" | "==") AddExpression]
+    expression = read_add_expression(tokens)
+    if tokens.peek().text in {'<', '>', '<=', '>=', '=='}:
+        operator = next(tokens).text
+        right_expression = read_add_expression(tokens)
+        expression = ast.BinaryExpression(expression, operator, right_expression)
+    return expression
+
+
+def read_add_expression(tokens: Peekable[Token]) -> ast.Expression:
+    # AddExpression = MulExpression (("+" | "-") MulExpression)*;
+    expression = read_mul_expression(tokens)
+    while tokens.peek().text in {'+', '-'}:
+        operator = next(tokens).text
+        right_expression = read_mul_expression(tokens)
+        expression = ast.BinaryExpression(expression, operator, right_expression)
+    return expression
+
+
+# Expression = ComparisonExpression;
+read_expression = read_comparison_expression
+
+
+def read_mul_expression(tokens: Peekable[Token]) -> ast.Expression:
+    # MulExpression = PrimaryExpression (("*" | "/") PrimaryExpression)*;
+    expression = read_primary_expression(tokens)
+    while tokens.peek().text in {'*', '/'}:
+        operator = next(tokens).text
+        right_expression = read_primary_expression(tokens)
+        expression = ast.BinaryExpression(expression, operator, right_expression)
+    return expression
+
+
+def read_primary_expression(tokens: Peekable[Token]) -> ast.Expression:  # noqa: C901
+    next_token = next(tokens)
+    negative = False
+    bool_negation = False
+    if next_token.text == '-':
+        negative = True
+        next_token = next(tokens)
+    elif next_token.text == 'not':
+        bool_negation = True
+        next_token = next(tokens)
+
+    to_return: ast.Expression
+
+    if next_token.type is TokenType.identifier:
+        name = next_token.text
+        next_token = tokens.peek()
+        if next_token.text in {'(', '{'}:
+            if next_token.text == '(':
+                delimiters = ('(', ')')
+                struct = False
+            else:
+                delimiters = ('{', '}')
+                struct = True
+            parameters = read_parameters(tokens, delimiters)
+            if struct:
+                to_return = ast.StructInstantiation(name, parameters)
+            else:
+                to_return = ast.FunctionCall(name, parameters)
+        elif next_token.text in {'.', '['}:
+            reference: ast.MemoryReference = ast.VariableReference(name)
+            while next_token.text in {'.', '['}:
+                character = next(tokens).text
+                if character == '.':
+                    right_name = expect(tokens, TokenType.identifier).text
+                    reference = ast.DotAccess(reference, right_name)
+                else:
+                    index = read_expression(tokens)
+                    expect(tokens, ']')
+                    reference = ast.IndexAccess(reference, index)
+                next_token = tokens.peek()
+            to_return = reference
+        else:
+            to_return = ast.VariableReference(name)
+    elif next_token.text == '[':
+        values = read_array_initializers(tokens)
+        expect(tokens, ']')
+        to_return = ast.ArrayLiteral(values)
+    elif next_token.type is TokenType.string_literal:
+        to_return = ast.StringLiteral(next_token.text)
+    elif next_token.type is TokenType.integer_literal:
+        to_return = ast.IntegerLiteral(next_token.text)
+    elif next_token.type is TokenType.float_literal:
+        to_return = ast.FloatLiteral(next_token.text)
+    elif next_token.type is TokenType.bool_literal:
+        to_return = ast.BoolLiteral(next_token.text)
+    elif next_token.text == '&':
+        subexpression = read_primary_expression(tokens)
+        # TODO: make this nicer
+        assert isinstance(subexpression, ast.VariableReference), \
+            'Can only get address of simple variable at the moment'
+        to_return = ast.AddressOf(subexpression)
+    elif next_token.text == '*':
+        subexpression = read_primary_expression(tokens)
+        # TODO: make this nicer
+        assert isinstance(subexpression, ast.VariableReference), \
+            'Can only get value of simple variable pointer at the moment'
+        to_return = ast.ValueAt(subexpression)
+
+    else:
+        raise UnexpectedToken(next_token, [])
+
+    if negative:
+        to_return = ast.NegativeExpression(to_return)
+    elif bool_negation:
+        to_return = ast.BoolNegationExpression(to_return)
+    return to_return
+
+
+def read_array_initializers(tokens: Peekable[Token]) -> List[ast.Expression]:
+    initializers: List[ast.Expression] = []
+
+    while tokens.peek().text != ']':
+        initializers.append(read_add_expression(tokens))
+        if tokens.peek().text != ']':
+            expect(tokens, ',')
+
+    return initializers
+
+
+def read_variable_declaration(tokens: Peekable[Token]) -> ast.VariableDeclaration:
+    # VariableDeclaration = "let" name (":" name | "=" AddExpression | ":" name "=" AddExpression);
+    expect(tokens, 'let')
+    name = expect(tokens, TokenType.identifier).text
+
+    type_ = None
+    if tokens.peek().text == ':':
+        next(tokens)
+        type_ = expect(tokens, TokenType.identifier).text
+
+    needs_initializer = type_ is None
+    initializer = None
+    if tokens.peek().text == '=' or needs_initializer:
+        expect(tokens, '=')
+        initializer = read_expression(tokens)
+
+    return ast.VariableDeclaration(name, initializer, type_)
+
+
+def read_parameters(tokens: Peekable[Token], delimiters: Tuple[str, str]) -> List[ast.Expression]:
+    opening, closing = delimiters
+    expect(tokens, opening)
+    parameters = []
+    while tokens.peek().type is not TokenType.eof and tokens.peek().text != closing:
+        parameters.append(read_expression(tokens))
+        if tokens.peek().text == ',':
+            next(tokens)
+    expect(tokens, closing)
+    return parameters

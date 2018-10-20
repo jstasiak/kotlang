@@ -1,0 +1,13 @@
+/.cache/
+/build/
+*.o
+a.out
+/test
+
+# Test coverage reports
+*,cover
+coverage.xml
+/htmlcov/
+
+.mypy_cache/
+/.pytest_cache/

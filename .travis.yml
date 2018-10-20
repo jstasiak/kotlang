@@ -1,0 +1,13 @@
+language: python
+matrix:
+    fast_finish: true
+    include:
+        - { python: "3.7", dist: xenial, sudo: true }
+        - { python: "3.7", os: osx, sudo: false }
+install: pip install '.[dev]'
+script:
+    - make ci
+notifications:
+  email:
+    on_success: change
+    on_failure: change

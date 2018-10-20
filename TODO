@@ -1,0 +1,3 @@
+* Remove asserts
+* Remove hardcoded things (function signatures, i64 etc.)
+* Determine what to do with number conversions

@@ -1,0 +1,17 @@
+import libc;
+
+
+def max<T>(a: T, b: T) -> T {
+	if (a > b) {
+		return a;
+	}
+	else {
+		return b;
+	}
+}
+
+def main(argc: i64, argv: i8**) -> i64 {
+	printf("max(1, 2): %d\n", max(1, 2));
+	printf("max(1.32, 2.33): %.2f\n", max(1.32, 2.33));
+	return 0;
+}

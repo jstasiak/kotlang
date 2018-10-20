@@ -1,0 +1,9 @@
+import libc;
+import std;
+
+def main(argc: i64, argv: i8**) -> i64 {
+	printf("Hello\n");
+	printf("argc: %d\n", argc);
+	assert(strlen("Owl") == 3, "strlen does not work");
+	return 0;
+}

@@ -1,0 +1,5 @@
+outer.inner.x: 1
+outer.inner.x: 2
+inner.x: 2
+inner.x: 3
+outer.inner.x: 2

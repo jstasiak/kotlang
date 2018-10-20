@@ -1,0 +1,8 @@
+import libc;
+
+def assert(value: bool, message: i8*) -> void {
+    if (not value) {
+        printf("Assertion failed, exiting: %s\n", message);
+        abort();
+    }
+}

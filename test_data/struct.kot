@@ -1,0 +1,29 @@
+import libc;
+
+struct Inner {
+    x: i64;
+}
+
+struct Outer {
+	inner: Inner;
+}
+
+def main(argc: i64, argv: i8**) -> i64 {
+	let outer = Outer {Inner {1}};
+	printf("outer.inner.x: %d\n", outer.inner.x);
+
+	outer.inner.x = 2;
+	printf("outer.inner.x: %d\n", outer.inner.x);
+
+	let inner = outer.inner;
+	printf("inner.x: %d\n", inner.x);
+
+	inner.x = 3;
+	printf("inner.x: %d\n", inner.x);
+
+	// We verify that let inner = ... above creates a copy of the structure,
+	// not a reference to it.
+	printf("outer.inner.x: %d\n", outer.inner.x);
+
+	return 0;
+}

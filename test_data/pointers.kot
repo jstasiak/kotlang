@@ -1,0 +1,13 @@
+import libc;
+import std;
+
+def modify_parameter(number: i64*) -> void {
+	*number = 222;
+}
+
+def main(argc: i64, argv: i8**) -> i64 {
+	let number = 111;
+	modify_parameter(&number);
+	assert(number == 222, "Value not modified by pointer");
+	return 0;
+}
