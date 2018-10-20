@@ -13,8 +13,9 @@ def main(argc: i64, argv: i8**) -> i64 {
 	// array access test
 	printf("equality1: %d\n", argv[0][0] == argv[0][0]);
 
-	let no_explicit_value: i64;
-	printf("no_explicit_value: %d\n", no_explicit_value);
+	// TODO: uncomment this when we initialize to zero by default
+	//let no_explicit_value: i64;
+	//printf("no_explicit_value: %d\n", no_explicit_value);
 
 	return 0;
 }

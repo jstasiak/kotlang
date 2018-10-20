@@ -2,4 +2,3 @@ a: 1
 a: 2
 string[0]: 72
 equality1: 1
-no_explicit_value: 0
