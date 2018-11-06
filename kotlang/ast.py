@@ -254,7 +254,7 @@ def get_or_create_llvm_function(
                 memory = builder.alloca(arg.type, name=p.name)
                 builder.store(arg, memory)
                 parameter_type = p.type_.codegen(namespace)
-                function_namespace.add_item(Variable(p.name or f'param{i}', parameter_type, memory))
+                function_namespace.add_item(Variable(p.name or f'param{i + 1}', parameter_type, memory))
 
             function.code_block.codegen(module, builder, function_namespace)
             if function.return_type == 'void':
