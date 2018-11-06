@@ -97,8 +97,10 @@ class IntType(Type):
             return builder.trunc(value, self.ir_type)
 
         if from_type.signed:
+            assert self.signed
             return builder.sext(value, self.ir_type)
         else:
+            assert not self.signed
             return builder.zext(value, self.ir_type)
 
 
