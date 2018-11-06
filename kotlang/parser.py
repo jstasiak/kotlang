@@ -1,10 +1,47 @@
 from collections import OrderedDict
 import os
+from pathlib import Path
+import platform
+import subprocess
 from typing import cast, Iterator, List, MutableMapping, Optional, Tuple, Union
 
 from kotlang import ast
 from kotlang.itertools import Peekable
 from kotlang.lexer import lex, Token, TokenType
+
+# Paths are hardcoded, can't be bothered to detect them at the moment
+if platform.system() == 'Linux':
+    # Ubuntu
+    libclang_file = '/usr/lib/llvm-7/lib/libclang.so'
+    include_paths = [
+        '/usr/local/include',
+        '/usr/local/clang-7.0.0/lib/clang/7.0.0/include',
+        '/usr/include/x86_64-linux-gnu',
+        '/usr/include',
+    ]
+else:
+    # Mac OS 10.13 with HomeBrew
+    libclang_file = '/usr/local/opt/llvm/lib/libclang.dylib'
+    include_paths = [
+        '/usr/local/include',
+        '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/10.0.0/include',  # noqa
+        '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include',
+        '/usr/include',
+        '/System/Library/Frameworks',
+        '/Library/Frameworks',
+    ]
+
+from kotlang.clang import cindex  # noqa
+cindex.Config.set_library_file(libclang_file)
+clang_index = cindex.Index.create()
+
+
+def find_header(header: str) -> str:
+    paths = [Path(ip) / header for ip in include_paths]
+    for p in paths:
+        if p.exists():
+            return str(p)
+    assert False, f'Header {header} not found'
 
 
 def parse(text: str, name: str) -> ast.Module:
@@ -71,16 +108,23 @@ def read_module(tokens: Peekable[Token]) -> ast.Module:
     functions = []
     structs = []
     imports = []
+    cfunctions = {}
     while tokens.peek().type is not TokenType.eof:
-        next_text = expect_no_eat(tokens, 'def', 'extern', 'struct', 'import').text
+        next_text = expect_no_eat(tokens, 'def', 'extern', 'struct', 'import', 'cimport').text
         if next_text == 'extern':
             functions.append(read_function_declaration(tokens))
         elif next_text == 'def':
             functions.append(read_function_definition(tokens))
         elif next_text == 'import':
             imports.append(read_import(tokens))
+        elif next_text == 'cimport':
+            cfunctions.update({f.name: f for f in read_cimport(tokens)})
         else:
             structs.append(read_struct_definition(tokens))
+
+    if cfunctions:
+        imports.append(('c', ast.Module([], list(cfunctions.values()), [])))
+
     return ast.Module(structs, functions, imports)
 
 
@@ -128,6 +172,68 @@ def read_import(tokens: Peekable[Token]) -> Tuple[str, ast.Module]:
     expect(tokens, ';')
     text = read_module_text(module_name)
     return (module_name, parse(text, module_name))
+
+
+def read_cimport(tokens: Peekable[Token]) -> List[ast.Function]:
+    # CImport = "cimport" StringLiteral ";";
+    expect(tokens, 'cimport')
+    header = expect(tokens, TokenType.string_literal).text
+    expect(tokens, ';')
+
+    # Stripping first and last quotation mark characters because that's what string literals have
+    header = header[1:-1]
+
+    tu = clang_index.parse(find_header(header))
+    functions: List[ast.Function] = []
+    cursors = [tu.cursor]
+    while cursors:
+        c = cursors.pop()
+        if (
+            c.kind is cindex.CursorKind.FUNCTION_DECL  # type: ignore
+            and not c.is_definition()
+            # TODO: This restriction is in place until we follow typedefs and import struct declarations.
+            # For now let's import few whitelisted functions.
+            and c.spelling in {'printf', 'abort', 'strlen'}
+        ):
+            functions.append(convert_c_function_declaration(c))
+        cursors.extend(c.get_children())
+
+    return functions
+
+
+def convert_c_function_declaration(declaration: cindex.Cursor) -> ast.Function:
+    return_type = convert_c_type_reference(declaration.type.get_result())
+
+    parameter_names_types = [
+        (p.spelling or None, convert_c_type_reference(p.type))
+        for p in declaration.get_arguments()
+    ]
+    parameters = ast.ParameterList(
+        [ast.Parameter(n, t) for (n, t) in parameter_names_types],
+        declaration.type.is_function_variadic(),
+    )
+    # TODO make Function take TypeReference as return_type and remove this return_type.name thing
+    assert isinstance(return_type, ast.BaseTypeReference)
+    return ast.Function(declaration.spelling, [], parameters, return_type.name, None, "c")
+
+
+def convert_c_type_reference(ref: cindex.Type) -> ast.TypeReference:
+    pointer_level = 0
+    while ref.kind is cindex.TypeKind.POINTER:  # type: ignore
+        pointer_level += 1
+        ref = ref.get_pointee()
+    t: ast.TypeReference = ast.BaseTypeReference(c_types_mapping[ref.kind])
+    for i in range(0, pointer_level):
+        t = t.as_pointer()
+    return t
+
+
+c_types_mapping = {
+    cindex.TypeKind.INT: 'i32',  # type: ignore
+    cindex.TypeKind.CHAR_S: 'i8',  # type: ignore
+    cindex.TypeKind.ULONG: 'u64',  # type: ignore
+    cindex.TypeKind.VOID: 'void',  # type: ignore
+}
 
 
 def read_module_text(name: str) -> str:

@@ -1,4 +1,5 @@
-import libc;
+cimport "stdio.h";
+cimport "stdlib.h";
 
 def assert(value: bool, message: i8*) -> void {
     if (not value) {

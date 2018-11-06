@@ -1,5 +1,4 @@
-import libc;
-
+cimport "stdio.h";
 
 def max<T>(a: T, b: T) -> T {
 	if (a > b) {

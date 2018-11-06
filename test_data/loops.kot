@@ -1,4 +1,4 @@
-import libc;
+cimport "stdio.h";
 
 def main(argc: i64, argv: i8**) -> i64 {
 	for (let i = 0; i < 3; i = i + 1) {

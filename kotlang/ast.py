@@ -242,19 +242,19 @@ def get_or_create_llvm_function(
             function.parameters.variadic,
         )
         llvm_function = ir.Function(module, function_type, name=symbol_name)
-        for p, arg in zip(function.parameters, llvm_function.args):
-            arg.name = p.name + '_arg'
+        for i, (p, arg) in enumerate(zip(function.parameters, llvm_function.args)):
+            arg.name = (p.name or f'param{i + 1}') + '_arg'
 
         if function.code_block is not None:
             block = llvm_function.append_basic_block(name="entry")
             builder = ir.IRBuilder(block)
 
             function_namespace = Namespace(parents=[namespace])
-            for p, arg in zip(function.parameters, llvm_function.args):
+            for i, (p, arg) in enumerate(zip(function.parameters, llvm_function.args)):
                 memory = builder.alloca(arg.type, name=p.name)
                 builder.store(arg, memory)
                 parameter_type = p.type_.codegen(namespace)
-                function_namespace.add_item(Variable(p.name, parameter_type, memory))
+                function_namespace.add_item(Variable(p.name or f'param{i}', parameter_type, memory))
 
             function.code_block.codegen(module, builder, function_namespace)
             if function.return_type == 'void':
@@ -297,11 +297,16 @@ class Module:
     ) -> 'Namespace':
         import_namespaces: List[Namespace] = []
         for name, i in self.imports:
-            if meta_namespace.has(name):
+            # FIXME we currently need to special-case the c module where we put bits
+            # imported from C headers. If we remove this special handling one set of headers imported by
+            # one module would overshadow another set of headers in another module processed later.
+            # This whole MetaNamespace hack needs to go most likely.
+            if meta_namespace.has(name) and name != 'c':
                 imported_namespace = meta_namespace.get(name)
             else:
                 imported_namespace = i.codegen(module, parent_namespace, meta_namespace)
-                meta_namespace.set(name, imported_namespace)
+                if name != 'c':
+                    meta_namespace.set(name, imported_namespace)
             import_namespaces.append(imported_namespace)
 
         module_namespace = Namespace(parents=[parent_namespace, *import_namespaces])
@@ -1001,7 +1006,7 @@ class PointerTypeReference(TypeReference):
 
 @dataclass
 class Parameter:
-    name: str
+    name: Optional[str]
     type_: TypeReference
 
 

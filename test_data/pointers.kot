@@ -1,4 +1,4 @@
-import libc;
+cimport "stdio.h";
 import std;
 
 def modify_parameter(number: i64*) -> void {

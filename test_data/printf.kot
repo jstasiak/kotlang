@@ -1,4 +1,5 @@
-import libc;
+cimport "stdio.h";
+cimport "string.h";
 import std;
 
 def main(argc: i64, argv: i8**) -> i64 {
