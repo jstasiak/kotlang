@@ -977,9 +977,9 @@ class TypeReference:
         raise NotImplementedError()
 
 
+@dataclass
 class BaseTypeReference(TypeReference):
-    def __init__(self, name: str) -> None:
-        self.name = name
+    name: str
 
     def codegen(self, namespace: Namespace) -> Type:
         return namespace.get_type(self.name)
@@ -988,9 +988,9 @@ class BaseTypeReference(TypeReference):
         return self
 
 
+@dataclass
 class PointerTypeReference(TypeReference):
-    def __init__(self, base: TypeReference) -> None:
-        self.base = base
+    base: TypeReference
 
     def codegen(self, namespace: Namespace) -> ir.Type:
         return self.base.codegen(namespace).as_pointer()
@@ -999,16 +999,16 @@ class PointerTypeReference(TypeReference):
         return self.base.most_basic_type()
 
 
+@dataclass
 class Parameter:
-    def __init__(self, name: str, type_: TypeReference) -> None:
-        self.name = name
-        self.type_ = type_
+    name: str
+    type_: TypeReference
 
 
+@dataclass
 class ParameterList(Iterable[Parameter]):
-    def __init__(self, parameters: List[Parameter], variadic: bool = False) -> None:
-        self.parameters = parameters
-        self.variadic = variadic
+    parameters: List[Parameter]
+    variadic: bool = False
 
     def __iter__(self) -> Iterator[Parameter]:
         return iter(self.parameters)
