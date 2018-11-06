@@ -703,6 +703,9 @@ class FunctionCall(Expression):
 
         parameter_names = [p.name for p in function.parameters]
         # TODO: handle not enough parameters here
+        assert len(self.parameters) == len(parameter_names) or \
+            function.parameters.variadic and len(self.parameters) > len(parameter_names), \
+            (function.parameters, self.parameters, parameter_names)
         parameters = [
             p.codegen(module, builder, namespace, f'{self.name}.{n}')
             for (p, n) in zip_longest(self.parameters, parameter_names, fillvalue='vararg')
