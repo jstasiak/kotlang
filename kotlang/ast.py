@@ -578,7 +578,8 @@ class VariableDeclaration(Statement):
         namespace.add_item(Variable(self.name, type_, memory))
         if self.expression is not None:
             value = self.expression.codegen(module, builder, namespace)
-            builder.store(value, memory)
+            adapted_value = type_.adapt(builder, value, self.expression.type(namespace))
+            builder.store(adapted_value, memory)
 
 
 class Expression(Statement):
@@ -638,6 +639,7 @@ class BinaryExpression(Expression):
         i64 = ir.IntType(64)
         f32 = ir.FloatType()
         f64 = ir.DoubleType()
+        comparison_operators = {'<', '>', '<=', '>=', '==', '!='}
         if left_value.type == right_value.type:
             if left_value.type in [i8, i32, i64]:
                 arithmetic_methods = {
@@ -650,7 +652,7 @@ class BinaryExpression(Expression):
                 if self.operator in arithmetic_methods:
                     method = arithmetic_methods[self.operator]
                     return method(left_value, right_value, name=self.name)
-                else:
+                elif self.operator in comparison_operators:
                     return builder.icmp_signed(self.operator, left_value, right_value, name=self.name)
             elif left_value.type in {f32, f64}:
                 arithmetic_methods = {
@@ -665,6 +667,17 @@ class BinaryExpression(Expression):
                 else:
                     # TODO: decide if ordered is the right choice here
                     return builder.fcmp_ordered(self.operator, left_value, right_value, name=self.name)
+        if (
+            isinstance(left_value.type, ir.IntType)
+            and isinstance(right_value.type, ir.IntType)
+            and self.operator in comparison_operators
+        ):
+            extend_to = ir.IntType(max([left_value.type.width, right_value.type.width]))
+            if left_value.type != extend_to:
+                left_value = builder.sext(left_value, extend_to)
+            else:
+                right_value = builder.sext(right_value, extend_to)
+            return builder.icmp_signed(self.operator, left_value, right_value, name=self.name)
         raise AssertionError(f'Invalid operand, operator, operand triple: ({left_value.type}, {right_value.type}, {self.operator})')  # noqa
 
     def type(self, namespace: Namespace) -> Type:
@@ -866,7 +879,9 @@ class Assignment(Statement):
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> None:
         pointer = self.target.get_pointer(module, builder, namespace)
         value = self.expression.codegen(module, builder, namespace)
-        builder.store(value, pointer)
+        destination_type = self.target.type(namespace)
+        adapted_value = destination_type.adapt(builder, value, self.expression.type(namespace))
+        builder.store(adapted_value, pointer)
 
 
 class ArrayLiteral(Expression):

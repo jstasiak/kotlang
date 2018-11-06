@@ -1,0 +1,14 @@
+import std;
+
+def main(argc: i64, argv: i8**) -> i64 {
+	let i1: i32 = 1;
+	let i2: i64 = 1;
+	assert(i1 == i2, "i1 != i2");
+	i1 = 2;
+	assert(i1 > i2, "i1 <= i2");
+	assert(i1 >= i2, "i1 < i2");
+	i2 = 3;
+	assert(i1 < i2, "i1 >= i2");
+	assert(i1 <= i2, "i1 > i2");
+	return 0;
+}
