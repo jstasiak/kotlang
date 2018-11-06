@@ -58,9 +58,9 @@ def expect_no_eat(tokens: Peekable[Token], *what: ExpectedTokenT) -> Token:
 
     for w in what:
         if (
-            isinstance(w, TokenType) and next_token.type == w or
-            isinstance(w, str) and next_token.text == w or
-            next_token == w
+            isinstance(w, TokenType) and next_token.type == w
+            or isinstance(w, str) and next_token.text == w
+            or next_token == w
         ):
             return next_token
     raise UnexpectedToken(next_token, list(what))
