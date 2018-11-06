@@ -27,7 +27,7 @@ IDENTIFIER_START = 'abcdefghijklmnopqrstuvwxyz_'
 IDENTIFIER_START += IDENTIFIER_START.upper()
 IDENTIFIER_CONTINUATION = IDENTIFIER_START + '01234567890'
 
-OPS = set('! , . ... : ; -> * / \ + - < <= > >= ( ) [ ] { } = == !='.split())
+OPS = set(r'! , . ... : ; -> * / \ + - < <= > >= ( ) [ ] { } = == !='.split())
 MAX_OP_WIDTH = max(len(op) for op in OPS)
 
 
