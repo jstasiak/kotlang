@@ -10,6 +10,7 @@ from typing import (
 
 from llvmlite import ir
 
+from kotlang import typesystem as ts
 from kotlang.symbols import mangle
 
 
@@ -36,171 +37,13 @@ class Node:
 
 
 @dataclass
-class Type:
-    @property
-    def ir_type(self) -> ir.Type:
-        raise NotImplementedError(f'Not implemented for {type(self)}')
-
-    @property
-    def name(self) -> str:
-        raise NotImplementedError(f'Not implemented for {type(self)}')
-
-    def as_pointer(self) -> 'PointerType':
-        return PointerType(self)
-
-    def as_pointee(self) -> 'Type':
-        assert isinstance(self, PointerType)
-        return self.pointee
-
-    def __eq__(self, other: Any) -> bool:
-        return hasattr(other, 'name') and self.name == other.name
-
-    def adapt(self, builder: ir.IRBuilder, value: ir.Value, from_type: Type) -> ir.Value:
-        assert self == from_type, f'Cannot adapt {from_type.name} to {self.name}'
-        return value
-
-
-@dataclass
-class VoidType(Type):
-    @property
-    def name(self) -> str:
-        return 'void'
-
-    @property
-    def ir_type(self) -> ir.Type:
-        return ir.VoidType()
-
-
-@dataclass
-class IntType(Type):
-    bits: int
-    signed: bool
-
-    @property
-    def name(self) -> str:
-        prefix = 'i' if self.signed else 'u'
-        return f'{prefix}{self.bits}'
-
-    @property
-    def ir_type(self) -> ir.Type:
-        return ir.IntType(self.bits)
-
-    def adapt(self, builder: ir.IRBuilder, value: ir.Value, from_type: Type) -> ir.Value:
-        if not isinstance(from_type, IntType):
-            return super().adapt(builder, value, from_type)
-
-        if from_type.bits == self.bits:
-            assert from_type.signed == self.signed
-            return value
-
-        if from_type.bits > self.bits:
-            return builder.trunc(value, self.ir_type)
-
-        if from_type.signed:
-            assert self.signed
-            return builder.sext(value, self.ir_type)
-        else:
-            assert not self.signed
-            return builder.zext(value, self.ir_type)
-
-
-@dataclass
-class FloatType(Type):
-    bits: int
-
-    @property
-    def name(self) -> str:
-        return f'f{self.bits}'
-
-    @property
-    def ir_type(self) -> ir.Type:
-        return ir.FloatType() if self.bits == 32 else ir.DoubleType()
-
-
-@dataclass
-class BoolType(Type):
-    @property
-    def name(self) -> str:
-        return 'bool'
-
-    @property
-    def ir_type(self) -> ir.Type:
-        return ir.IntType(1)
-
-
-@dataclass
-class PointerType(Type):
-    pointee: Type
-
-    @property
-    def name(self) -> str:
-        return self.pointee.name + '*'
-
-    @property
-    def ir_type(self) -> ir.Type:
-        return self.pointee.ir_type.as_pointer()
-
-    def adapt(self, builder: ir.IRBuilder, value: ir.Value, from_type: Type) -> ir.Value:
-        # TODO remove this
-        i64 = ir.IntType(64)
-
-        if isinstance(from_type, ArrayType) and self.pointee == from_type.element_type:
-            memory = builder.alloca(value.type)
-            builder.store(value, memory)
-            return builder.gep(memory, (i64(0), i64(0)))
-
-        return super().adapt(builder, value, from_type)
-
-
-@dataclass
-class StructType(Type):
-    struct_name: str
-    members: List[Tuple[str, Type]]
-
-    @property
-    def name(self) -> str:
-        return self.struct_name
-
-    @property
-    def ir_type(self) -> ir.Type:
-        member_types = [t.ir_type for n, t in self.members]
-        return ir.LiteralStructType(member_types)
-
-    def get_member_index(self, name: str) -> int:
-        for i, (n, t) in enumerate(self.members):
-            if n == name:
-                return i
-        raise KeyError()
-
-    def get_member_type(self, name: str) -> Type:
-        for n, t in self.members:
-            if n == name:
-                return t
-        raise KeyError()
-
-
-@dataclass
-class ArrayType(Type):
-    element_type: Type
-    length: int
-
-    @property
-    def name(self) -> str:
-        return f'{self.element_type.name}[{self.length}]'
-
-    @property
-    def ir_type(self) -> ir.Type:
-        return ir.ArrayType(self.element_type.ir_type, self.length)
-
-
-@dataclass
 class Struct:
     name: str
     members: List[Tuple[str, str]]
 
-    def get_type(self, namespace: Namespace) -> Type:
+    def get_type(self, namespace: Namespace) -> ts.Type:
         members = [(n, namespace.get_type(t)) for n, t in self.members]
-        return StructType(self.name, members)
+        return ts.StructType(self.name, members)
 
 
 @dataclass
@@ -275,13 +118,13 @@ class Module:
 
     def codegen_top_level(self, name: str) -> ir.Module:
         builtin_namespace = Namespace()
-        builtin_namespace.add_item(VoidType())
-        builtin_namespace.add_item(BoolType())
+        builtin_namespace.add_item(ts.VoidType())
+        builtin_namespace.add_item(ts.BoolType())
         for signed in {True, False}:
             for bits in {8, 16, 32, 64}:
-                builtin_namespace.add_item(IntType(bits, signed=signed))
-        builtin_namespace.add_item(FloatType(32))
-        builtin_namespace.add_item(FloatType(64))
+                builtin_namespace.add_item(ts.IntType(bits, signed=signed))
+        builtin_namespace.add_item(ts.FloatType(32))
+        builtin_namespace.add_item(ts.FloatType(64))
 
         module = ir.Module(name=name)
         namespace = self.codegen(module, builtin_namespace, MetaNamespace())
@@ -326,7 +169,7 @@ class Module:
 @dataclass
 class Variable:
     name: str
-    type_: Type
+    type_: ts.Type
     value: ir.Value
 
 
@@ -340,7 +183,7 @@ class GeneratedFunction:
         return self.function.name
 
 
-NamespaceItem = Union[Type, Variable, Function]
+NamespaceItem = Union[ts.Type, Variable, Function]
 _T = TypeVar('_T')
 
 
@@ -362,8 +205,8 @@ class Namespace:
         assert not self.has_name(name)
         self._things[name] = t
 
-    def get_type(self, name: str) -> Type:
-        return self.get_item(name, Type)
+    def get_type(self, name: str) -> ts.Type:
+        return self.get_item(name, ts.Type)
 
     def get_function(self, name: str) -> Function:
         return self.get_item(name, Function)
@@ -536,7 +379,7 @@ def loop_helper(
     condition: Expression,
     body: Statement,
 ) -> None:
-    assert isinstance(condition.type(namespace), BoolType)
+    assert isinstance(condition.type(namespace), ts.BoolType)
     condition_block = builder.append_basic_block('loop.condition')
     body_block = builder.append_basic_block('loop.body')
     exit_block = builder.append_basic_block('loop.exit')
@@ -591,7 +434,7 @@ class Expression(Statement):
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         raise NotImplementedError()
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         raise NotImplementedError(f'type() not implemented for {type(self)}')
 
 
@@ -604,7 +447,7 @@ class NegativeExpression(Expression):
         value.constant = -value.constant
         return value
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         return self.expression.type(namespace)
 
 
@@ -618,7 +461,7 @@ class BoolNegationExpression(Expression):
         value_to_negate = self.expression.codegen(module, builder, namespace)
         return builder.not_(value_to_negate, name=name)
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         return self.expression.type(namespace)
 
 
@@ -685,7 +528,7 @@ class BinaryExpression(Expression):
             return builder.icmp_signed(self.operator, left_value, right_value, name=self.name)
         raise AssertionError(f'Invalid operand, operator, operand triple: ({left_value.type}, {right_value.type}, {self.operator})')  # noqa
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         if self.operator in {'<', '>', '<=', '>=', '==', '!='}:
             return namespace.get_type('bool')
         elif self.operator in {'+', '-', '*', '/'}:
@@ -728,7 +571,7 @@ class FunctionCall(Expression):
         llvm_function = get_or_create_llvm_function(module, namespace, function)
         return builder.call(llvm_function, parameters, name=name)
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type('i64')
 
 
@@ -743,7 +586,7 @@ def namespace_for_specialized_function(
     function: Function,
     arguments: Collection[Expression],
 ) -> Namespace:
-    mapping = {}  # type: Dict[str, Type]
+    mapping = {}  # type: Dict[str, ts.Type]
     for parameter, expression in zip(function.parameters, arguments):
         assert isinstance(parameter.type_, BaseTypeReference), 'TODO support pointers etc. here'
         type_name = parameter.type_.name
@@ -764,7 +607,7 @@ class StructInstantiation(Expression):
         self.parameters = parameters
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
-        struct = namespace.get_item(self.name, StructType)
+        struct = namespace.get_item(self.name, ts.StructType)
         assert len(self.parameters) == len(struct.members)
 
         member_names = [m[0] for m in struct.members]
@@ -776,7 +619,7 @@ class StructInstantiation(Expression):
 
         return value
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type(self.name)
 
 
@@ -787,7 +630,7 @@ class StringLiteral(Expression):
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         return string_constant(module, builder, self.text[1:-1], namespace)
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type('i8').as_pointer()
 
 
@@ -803,7 +646,7 @@ class IntegerLiteral(Expression):
         value = int(self.text)
         return namespace.get_type('i64').ir_type(value)
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type('i64')
 
 
@@ -815,7 +658,7 @@ class FloatLiteral(Expression):
         value = float(self.text)
         return namespace.get_type('f64').ir_type(value)
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type('f64')
 
 
@@ -827,7 +670,7 @@ class BoolLiteral(Expression):
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         return namespace.get_type('bool').ir_type(self.value)
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type('bool')
 
 
@@ -847,7 +690,7 @@ class VariableReference(MemoryReference):
     def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
         return namespace.get_variable(self.name).value
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_variable(self.name).type_
 
 
@@ -858,7 +701,7 @@ class AddressOf(MemoryReference):
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         return self.variable.get_pointer(module, builder, namespace)
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_variable(self.variable.name).type_.as_pointer()
 
 
@@ -872,7 +715,7 @@ class ValueAt(MemoryReference):
         pointer = builder.load(pointer)
         return pointer
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_variable(self.variable.name).type_.as_pointee()
 
     def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
@@ -908,10 +751,10 @@ class ArrayLiteral(Expression):
             builder.store(value, indexed_memory)
         return builder.load(memory)
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         # TODO make sure all elements are of the same type or can be coerced to one
         element_type = self.initializers[0].type(namespace)
-        return ArrayType(element_type, len(self.initializers))
+        return ts.ArrayType(element_type, len(self.initializers))
 
 
 class DotAccess(MemoryReference):
@@ -925,7 +768,7 @@ class DotAccess(MemoryReference):
 
     def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
         left_type = self.left_side.type(namespace)
-        assert isinstance(left_type, StructType)
+        assert isinstance(left_type, ts.StructType)
         member_index = left_type.get_member_index(self.member)
         left_pointer = self.left_side.get_pointer(module, builder, namespace)
         # i32 is mandatory when indexing within a structure.
@@ -934,9 +777,9 @@ class DotAccess(MemoryReference):
         i64 = namespace.get_type('i64').ir_type
         return builder.gep(left_pointer, (i64(0), i32(member_index),))
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         left_type = self.left_side.type(namespace)
-        assert isinstance(left_type, StructType)
+        assert isinstance(left_type, ts.StructType)
         return left_type.get_member_type(self.member)
 
 
@@ -955,24 +798,24 @@ class IndexAccess(MemoryReference):
         index = self.index.codegen(module, builder, namespace)
         i64 = namespace.get_type('i64').ir_type
         # TODO remove conditional logic from here if possible
-        if isinstance(pointer_type, PointerType):
+        if isinstance(pointer_type, ts.PointerType):
             pointer = builder.load(pointer)
             return builder.gep(pointer, (index,))
         else:
             return builder.gep(pointer, (i64(0), index))
 
-    def type(self, namespace: Namespace) -> Type:
+    def type(self, namespace: Namespace) -> ts.Type:
         base_type = self.pointer.type(namespace)
-        if isinstance(base_type, PointerType):
+        if isinstance(base_type, ts.PointerType):
             return base_type.pointee
-        elif isinstance(base_type, ArrayType):
+        elif isinstance(base_type, ts.ArrayType):
             return base_type.element_type
         else:
             assert False, f'Bad memory reference: {self.pointer}'
 
 
 class TypeReference:
-    def codegen(self, namespace: Namespace) -> Type:
+    def codegen(self, namespace: Namespace) -> ts.Type:
         raise NotImplementedError()
 
     def as_pointer(self) -> 'PointerTypeReference':
@@ -986,7 +829,7 @@ class TypeReference:
 class BaseTypeReference(TypeReference):
     name: str
 
-    def codegen(self, namespace: Namespace) -> Type:
+    def codegen(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type(self.name)
 
     def most_basic_type(self) -> 'BaseTypeReference':
