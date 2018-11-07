@@ -137,7 +137,7 @@ class Module:
         module: ir.Module,
         parent_namespace: Namespace,
         meta_namespace: MetaNamespace,
-    ) -> 'Namespace':
+    ) -> Namespace:
         import_namespaces: List[Namespace] = []
         for name, i in self.imports:
             # FIXME we currently need to special-case the c module where we put bits
@@ -586,7 +586,7 @@ def namespace_for_specialized_function(
     function: Function,
     arguments: Collection[Expression],
 ) -> Namespace:
-    mapping = {}  # type: Dict[str, ts.Type]
+    mapping: Dict[str, ts.Type] = {}
     for parameter, expression in zip(function.parameters, arguments):
         assert isinstance(parameter.type_, BaseTypeReference), 'TODO support pointers etc. here'
         type_name = parameter.type_.name
@@ -818,10 +818,10 @@ class TypeReference:
     def codegen(self, namespace: Namespace) -> ts.Type:
         raise NotImplementedError()
 
-    def as_pointer(self) -> 'PointerTypeReference':
+    def as_pointer(self) -> PointerTypeReference:
         return PointerTypeReference(self)
 
-    def most_basic_type(self) -> 'BaseTypeReference':
+    def most_basic_type(self) -> BaseTypeReference:
         raise NotImplementedError()
 
 
@@ -832,7 +832,7 @@ class BaseTypeReference(TypeReference):
     def codegen(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type(self.name)
 
-    def most_basic_type(self) -> 'BaseTypeReference':
+    def most_basic_type(self) -> BaseTypeReference:
         return self
 
 
@@ -843,7 +843,7 @@ class PointerTypeReference(TypeReference):
     def codegen(self, namespace: Namespace) -> ts.PointerType:
         return self.base.codegen(namespace).as_pointer()
 
-    def most_basic_type(self) -> 'BaseTypeReference':
+    def most_basic_type(self) -> BaseTypeReference:
         return self.base.most_basic_type()
 
 

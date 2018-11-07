@@ -16,10 +16,10 @@ class Type:
     def name(self) -> str:
         raise NotImplementedError(f'Not implemented for {type(self)}')
 
-    def as_pointer(self) -> 'PointerType':
+    def as_pointer(self) -> PointerType:
         return PointerType(self)
 
-    def as_pointee(self) -> 'Type':
+    def as_pointee(self) -> Type:
         assert isinstance(self, PointerType)
         return self.pointee
 
