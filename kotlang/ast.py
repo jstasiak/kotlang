@@ -840,7 +840,7 @@ class BaseTypeReference(TypeReference):
 class PointerTypeReference(TypeReference):
     base: TypeReference
 
-    def codegen(self, namespace: Namespace) -> ir.Type:
+    def codegen(self, namespace: Namespace) -> ts.PointerType:
         return self.base.codegen(namespace).as_pointer()
 
     def most_basic_type(self) -> 'BaseTypeReference':
