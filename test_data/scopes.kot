@@ -1,3 +1,5 @@
+import std;
+
 def main() -> i64 {
 	{
 		let i = 1;
@@ -5,5 +7,15 @@ def main() -> i64 {
 	{
 		let i = 2;
 	}
+
+	{
+		// types and values live in different namespaces
+		let i64: i64 = 1;
+		assert(i64 == 1, "i64 != 1");
+
+		let i: i64 = 22;
+		assert(i == 22, "i != 22");
+	}
+
 	return 0;
 }

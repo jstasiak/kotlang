@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from itertools import zip_longest
 from typing import (
     Any, cast, Collection, Dict, Iterable, Iterator, List,
@@ -97,7 +98,7 @@ def get_or_create_llvm_function(
                 memory = builder.alloca(arg.type, name=p.name)
                 builder.store(arg, memory)
                 parameter_type = p.type_.codegen(namespace)
-                function_namespace.add_item(Variable(p.name or f'param{i + 1}', parameter_type, memory))
+                function_namespace.add_value(Variable(p.name or f'param{i + 1}', parameter_type, memory))
 
             function.code_block.codegen(module, builder, function_namespace)
             if function.return_type == 'void':
@@ -118,13 +119,13 @@ class Module:
 
     def codegen_top_level(self, name: str) -> ir.Module:
         builtin_namespace = Namespace()
-        builtin_namespace.add_item(ts.VoidType())
-        builtin_namespace.add_item(ts.BoolType())
+        builtin_namespace.add_type(ts.VoidType())
+        builtin_namespace.add_type(ts.BoolType())
         for signed in {True, False}:
             for bits in {8, 16, 32, 64}:
-                builtin_namespace.add_item(ts.IntType(bits, signed=signed))
-        builtin_namespace.add_item(ts.FloatType(32))
-        builtin_namespace.add_item(ts.FloatType(64))
+                builtin_namespace.add_type(ts.IntType(bits, signed=signed))
+        builtin_namespace.add_type(ts.FloatType(32))
+        builtin_namespace.add_type(ts.FloatType(64))
 
         module = ir.Module(name=name)
         namespace = self.codegen(module, builtin_namespace, MetaNamespace())
@@ -154,10 +155,10 @@ class Module:
 
         module_namespace = Namespace(parents=[parent_namespace, *import_namespaces])
         for s in self.structs:
-            module_namespace.add_item(s.get_type(module_namespace))
+            module_namespace.add_type(s.get_type(module_namespace))
 
         for f in self.functions:
-            module_namespace.add_item(f)
+            module_namespace.add_value(f)
 
         nongeneric_functions = (f for f in self.functions if not f.is_generic)
         for f in nongeneric_functions:
@@ -184,26 +185,31 @@ class GeneratedFunction:
 
 
 NamespaceItem = Union[ts.Type, Variable, Function]
-_T = TypeVar('_T')
+_T = TypeVar('_T', bound=NamespaceItem)
+
+
+class NamespaceType(Enum):
+    types = 1
+    values = 2
 
 
 @dataclass
 class Namespace:
     parents: List[Namespace] = field(default_factory=list)
-    _things: Dict[str, NamespaceItem] = field(default_factory=dict)
+    types: Dict[str, ts.Type] = field(default_factory=dict)
+    values: Dict[str, Union[Variable, Function]] = field(default_factory=dict)
 
-    def has_name(self, name: str) -> bool:
-        try:
-            self.get_item(name, object)
-        except KeyError:
-            return False
-        else:
-            return True
+    def add_type(self, t: ts.Type, name: str = None) -> None:
+        self._add_item(self.types, t, name)
 
-    def add_item(self, t: NamespaceItem, name: str = None) -> None:
-        name = name if name is not None else t.name
-        assert not self.has_name(name)
-        self._things[name] = t
+    def add_value(self, t: Union[Variable, Function], name: str = None) -> None:
+        self._add_item(self.values, t, name)
+
+    def _add_item(self, sub: Dict[str, _T], item: _T, name: str = None) -> None:
+        # This method mutates sub
+        name = name if name is not None else item.name
+        assert name not in sub, name
+        sub[name] = item
 
     def get_type(self, name: str) -> ts.Type:
         return self.get_item(name, ts.Type)
@@ -215,7 +221,8 @@ class Namespace:
         return self.get_item(name, Variable)
 
     def item_iter(self, type_: TypingType[_T]) -> Iterator[_T]:
-        for thing in self._things.values():
+        sub = cast(dict, self.types if issubclass(type_, ts.Type) else self.values)
+        for thing in sub.values():
             if isinstance(thing, type_):
                 yield thing
         for p in self.parents:
@@ -223,10 +230,14 @@ class Namespace:
                 yield f
 
     def get_item(self, name: str, type_: TypingType[_T]) -> _T:
+        sub = cast(dict, self.types if issubclass(type_, ts.Type) else self.values)
+        return self._get_item(sub, name, type_)
+
+    def _get_item(self, sub: dict, name: str, type_: TypingType[_T]) -> _T:
         try:
-            result = self._things[name]
+            result = sub[name]
             assert isinstance(result, type_), (result, type_)
-            return result  # type: ignore
+            return result
         except KeyError:
             for p in self.parents:
                 try:
@@ -423,7 +434,7 @@ class VariableDeclaration(Statement):
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
         type_ = namespace.get_type(self.type_) if self.type_ else cast(Expression, self.expression).type(namespace)
         memory = builder.alloca(type_.ir_type, name=self.name)
-        namespace.add_item(Variable(self.name, type_, memory))
+        namespace.add_value(Variable(self.name, type_, memory))
         if self.expression is not None:
             value = self.expression.codegen(module, builder, namespace)
             adapted_value = type_.adapt(builder, value, self.expression.type(namespace))
@@ -597,7 +608,7 @@ def namespace_for_specialized_function(
 
     new_namespace = Namespace(parents=[namespace])
     for name, type_ in mapping.items():
-        new_namespace.add_item(type_, name)
+        new_namespace.add_type(type_, name)
     return new_namespace
 
 
