@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, TYPE_CHECKING
 
 from llvmlite import ir
+
+# FIXME We have an import cycle here, get rid of it
+if TYPE_CHECKING:
+    from kotlang.ast import Namespace, ParameterList
 
 
 @dataclass
 class Type:
-    @property
-    def ir_type(self) -> ir.Type:
+    def get_ir_type(self, namespace: Namespace) -> ir.Type:
         raise NotImplementedError(f'Not implemented for {type(self)}')
 
     @property
@@ -26,7 +29,7 @@ class Type:
     def __eq__(self, other: Any) -> bool:
         return hasattr(other, 'name') and self.name == other.name
 
-    def adapt(self, builder: ir.IRBuilder, value: ir.Value, from_type: Type) -> ir.Value:
+    def adapt(self, builder: ir.IRBuilder, namespace: Namespace, value: ir.Value, from_type: Type) -> ir.Value:
         assert self == from_type, f'Cannot adapt {from_type.name} to {self.name}'
         return value
 
@@ -37,8 +40,7 @@ class VoidType(Type):
     def name(self) -> str:
         return 'void'
 
-    @property
-    def ir_type(self) -> ir.Type:
+    def get_ir_type(self, namespace: Namespace) -> ir.Type:
         return ir.VoidType()
 
 
@@ -52,27 +54,27 @@ class IntType(Type):
         prefix = 'i' if self.signed else 'u'
         return f'{prefix}{self.bits}'
 
-    @property
-    def ir_type(self) -> ir.Type:
+    def get_ir_type(self, namespace: Namespace) -> ir.Type:
         return ir.IntType(self.bits)
 
-    def adapt(self, builder: ir.IRBuilder, value: ir.Value, from_type: Type) -> ir.Value:
+    def adapt(self, builder: ir.IRBuilder, namespace: Namespace, value: ir.Value, from_type: Type) -> ir.Value:
         if not isinstance(from_type, IntType):
-            return super().adapt(builder, value, from_type)
+            return super().adapt(builder, namespace, value, from_type)
 
         if from_type.bits == self.bits:
             assert from_type.signed == self.signed
             return value
 
+        ir_type = self.get_ir_type(namespace)
         if from_type.bits > self.bits:
-            return builder.trunc(value, self.ir_type)
+            return builder.trunc(value, ir_type)
 
         if from_type.signed:
             assert self.signed
-            return builder.sext(value, self.ir_type)
+            return builder.sext(value, ir_type)
         else:
             assert not self.signed
-            return builder.zext(value, self.ir_type)
+            return builder.zext(value, ir_type)
 
 
 @dataclass
@@ -83,8 +85,7 @@ class FloatType(Type):
     def name(self) -> str:
         return f'f{self.bits}'
 
-    @property
-    def ir_type(self) -> ir.Type:
+    def get_ir_type(self, namespace: Namespace) -> ir.Type:
         return ir.FloatType() if self.bits == 32 else ir.DoubleType()
 
 
@@ -94,8 +95,7 @@ class BoolType(Type):
     def name(self) -> str:
         return 'bool'
 
-    @property
-    def ir_type(self) -> ir.Type:
+    def get_ir_type(self, namespace: Namespace) -> ir.Type:
         return ir.IntType(1)
 
 
@@ -107,11 +107,10 @@ class PointerType(Type):
     def name(self) -> str:
         return self.pointee.name + '*'
 
-    @property
-    def ir_type(self) -> ir.Type:
-        return self.pointee.ir_type.as_pointer()
+    def get_ir_type(self, namespace: Namespace) -> ir.Type:
+        return self.pointee.get_ir_type(namespace).as_pointer()
 
-    def adapt(self, builder: ir.IRBuilder, value: ir.Value, from_type: Type) -> ir.Value:
+    def adapt(self, builder: ir.IRBuilder, namespace: Namespace, value: ir.Value, from_type: Type) -> ir.Value:
         # TODO remove this
         i64 = ir.IntType(64)
 
@@ -120,7 +119,7 @@ class PointerType(Type):
             builder.store(value, memory)
             return builder.gep(memory, (i64(0), i64(0)))
 
-        return super().adapt(builder, value, from_type)
+        return super().adapt(builder, namespace, value, from_type)
 
 
 @dataclass
@@ -132,9 +131,8 @@ class StructType(Type):
     def name(self) -> str:
         return self.struct_name
 
-    @property
-    def ir_type(self) -> ir.Type:
-        member_types = [t.ir_type for n, t in self.members]
+    def get_ir_type(self, namespace: Namespace) -> ir.Type:
+        member_types = [t.get_ir_type(namespace) for n, t in self.members]
         return ir.LiteralStructType(member_types)
 
     def get_member_index(self, name: str) -> int:
@@ -159,6 +157,19 @@ class ArrayType(Type):
     def name(self) -> str:
         return f'{self.element_type.name}[{self.length}]'
 
-    @property
-    def ir_type(self) -> ir.Type:
-        return ir.ArrayType(self.element_type.ir_type, self.length)
+    def get_ir_type(self, namespace: Namespace) -> ir.Type:
+        return ir.ArrayType(self.element_type.get_ir_type(namespace), self.length)
+
+
+@dataclass
+class FunctionType(Type):
+    parameters: ParameterList
+    return_type: str
+
+    def get_ir_type(self, namespace: Namespace) -> ir.Type:
+        return_type = namespace.get_type(self.return_type).get_ir_type(namespace)
+        return ir.FunctionType(
+            return_type,
+            [p.type_.codegen(namespace).get_ir_type(namespace) for p in self.parameters],
+            self.parameters.variadic,
+        ).as_pointer()

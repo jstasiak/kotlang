@@ -24,12 +24,12 @@ def string_constant(module: ir.Module, builder: ir.IRBuilder, s: str, namespace:
     constant_counter += 1
 
     as_bytes = s.encode()
-    array_type = ir.ArrayType(namespace.get_type('i8').ir_type, len(as_bytes) + 1)
+    array_type = ir.ArrayType(namespace.get_type('i8').get_ir_type(namespace), len(as_bytes) + 1)
     global_value = ir.GlobalVariable(module, array_type, name)
     global_value.global_constant = True
     global_value.initializer = array_type(bytearray(as_bytes + b'\x00'))
 
-    i64 = namespace.get_type('i64').ir_type
+    i64 = namespace.get_type('i64').get_ir_type(namespace)
     return builder.gep(global_value, (i64(0), i64(0)))
 
 
@@ -47,12 +47,15 @@ class Struct:
         return ts.StructType(self.name, members)
 
 
+class NamedValue:
+    type_: ts.Type
+
+
 @dataclass
-class Function:
+class Function(NamedValue):
     name: str
+    type_: ts.FunctionType
     type_parameters: List[str]
-    parameters: ParameterList
-    return_type: str
     code_block: Optional[CodeBlock]
     foreign_library: Optional[str] = None
 
@@ -79,14 +82,11 @@ def get_or_create_llvm_function(
         llvm_function = module.globals[symbol_name]
         assert isinstance(llvm_function, ir.Function)
     except KeyError:
-        return_type = namespace.get_type(function.return_type).ir_type
-        function_type = ir.FunctionType(
-            return_type,
-            [p.type_.codegen(namespace).ir_type for p in function.parameters],
-            function.parameters.variadic,
-        )
+        parameters = function.type_.parameters
+        function_type = function.type_.get_ir_type(namespace).pointee
+
         llvm_function = ir.Function(module, function_type, name=symbol_name)
-        for i, (p, arg) in enumerate(zip(function.parameters, llvm_function.args)):
+        for i, (p, arg) in enumerate(zip(parameters, llvm_function.args)):
             arg.name = (p.name or f'param{i + 1}') + '_arg'
 
         if function.code_block is not None:
@@ -94,14 +94,14 @@ def get_or_create_llvm_function(
             builder = ir.IRBuilder(block)
 
             function_namespace = Namespace(parents=[namespace])
-            for i, (p, arg) in enumerate(zip(function.parameters, llvm_function.args)):
+            for i, (p, arg) in enumerate(zip(parameters, llvm_function.args)):
                 memory = builder.alloca(arg.type, name=p.name)
                 builder.store(arg, memory)
                 parameter_type = p.type_.codegen(namespace)
                 function_namespace.add_value(Variable(p.name or f'param{i + 1}', parameter_type, memory))
 
             function.code_block.codegen(module, builder, function_namespace)
-            if function.return_type == 'void':
+            if function.type_.return_type == 'void':
                 builder.ret_void()
             else:
                 # FIXME: We depend on having returned already but this is not ensured
@@ -168,7 +168,7 @@ class Module:
 
 
 @dataclass
-class Variable:
+class Variable(NamedValue):
     name: str
     type_: ts.Type
     value: ir.Value
@@ -184,7 +184,7 @@ class GeneratedFunction:
         return self.function.name
 
 
-NamespaceItem = Union[ts.Type, Variable, Function]
+NamespaceItem = Union[ts.Type, NamedValue]
 _T = TypeVar('_T', bound=NamespaceItem)
 
 
@@ -197,12 +197,12 @@ class NamespaceType(Enum):
 class Namespace:
     parents: List[Namespace] = field(default_factory=list)
     types: Dict[str, ts.Type] = field(default_factory=dict)
-    values: Dict[str, Union[Variable, Function]] = field(default_factory=dict)
+    values: Dict[str, NamedValue] = field(default_factory=dict)
 
     def add_type(self, t: ts.Type, name: str = None) -> None:
         self._add_item(self.types, t, name)
 
-    def add_value(self, t: Union[Variable, Function], name: str = None) -> None:
+    def add_value(self, t: NamedValue, name: str = None) -> None:
         self._add_item(self.values, t, name)
 
     def _add_item(self, sub: Dict[str, _T], item: _T, name: str = None) -> None:
@@ -214,11 +214,8 @@ class Namespace:
     def get_type(self, name: str) -> ts.Type:
         return self.get_item(name, ts.Type)
 
-    def get_function(self, name: str) -> Function:
-        return self.get_item(name, Function)
-
-    def get_variable(self, name: str) -> Variable:
-        return self.get_item(name, Variable)
+    def get_value(self, name: str) -> NamedValue:
+        return self.get_item(name, NamedValue)
 
     def item_iter(self, type_: TypingType[_T]) -> Iterator[_T]:
         sub = cast(dict, self.types if issubclass(type_, ts.Type) else self.values)
@@ -433,11 +430,11 @@ class VariableDeclaration(Statement):
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
         type_ = namespace.get_type(self.type_) if self.type_ else cast(Expression, self.expression).type(namespace)
-        memory = builder.alloca(type_.ir_type, name=self.name)
+        memory = builder.alloca(type_.get_ir_type(namespace), name=self.name)
         namespace.add_value(Variable(self.name, type_, memory))
         if self.expression is not None:
             value = self.expression.codegen(module, builder, namespace)
-            adapted_value = type_.adapt(builder, value, self.expression.type(namespace))
+            adapted_value = type_.adapt(builder, namespace, value, self.expression.type(namespace))
             builder.store(adapted_value, memory)
 
 
@@ -556,31 +553,39 @@ class FunctionCall(Expression):
         self.parameters = parameters
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
-        function = namespace.get_function(self.name)
-        if function.is_generic:
-            namespace = namespace_for_specialized_function(namespace, function, self.parameters)
+        function = namespace.get_value(self.name)
+        if isinstance(function, Function):
+            if function.is_generic:
+                namespace = namespace_for_specialized_function(namespace, function, self.parameters)
 
-        parameter_names = [p.name for p in function.parameters]
+            parameters = function.type_.parameters
+            llvm_function = get_or_create_llvm_function(module, namespace, function)
+        else:
+            assert isinstance(function, Variable)
+            assert isinstance(function.type_, ts.FunctionType)
+            parameters = function.type_.parameters
+            llvm_function = builder.load(function.value)
+
+        parameter_names = [p.name for p in parameters]
         # TODO: handle not enough parameters here
         assert len(self.parameters) == len(parameter_names) or \
-            function.parameters.variadic and len(self.parameters) > len(parameter_names), \
-            (function.parameters, self.parameters, parameter_names)
-        parameters = [
+            parameters.variadic and len(self.parameters) > len(parameter_names), \
+            (parameters, self.parameters, parameter_names)
+        parameter_values = [
             p.codegen(module, builder, namespace, f'{self.name}.{n}')
             for (p, n) in zip_longest(self.parameters, parameter_names, fillvalue='vararg')
         ]
 
         assert len(self.parameters) >= len(parameter_names), (self.name, self.parameters)
 
-        expected_parameter_types = [p.type_.codegen(namespace) for p in function.parameters]
+        expected_parameter_types = [p.type_.codegen(namespace) for p in parameters]
         parameter_types = [p.type(namespace) for p in self.parameters]
         for i, (value, from_type, to_type) in enumerate(
-            zip(parameters, parameter_types, expected_parameter_types),
+            zip(parameter_values, parameter_types, expected_parameter_types),
         ):
-            parameters[i] = to_type.adapt(builder, value, from_type)
+            parameter_values[i] = to_type.adapt(builder, namespace, value, from_type)
 
-        llvm_function = get_or_create_llvm_function(module, namespace, function)
-        return builder.call(llvm_function, parameters, name=name)
+        return builder.call(llvm_function, parameter_values, name=name)
 
     def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type('i64')
@@ -598,7 +603,7 @@ def namespace_for_specialized_function(
     arguments: Collection[Expression],
 ) -> Namespace:
     mapping: Dict[str, ts.Type] = {}
-    for parameter, expression in zip(function.parameters, arguments):
+    for parameter, expression in zip(function.type_.parameters, arguments):
         assert isinstance(parameter.type_, BaseTypeReference), 'TODO support pointers etc. here'
         type_name = parameter.type_.name
         if type_name in function.type_parameters:
@@ -622,7 +627,7 @@ class StructInstantiation(Expression):
         assert len(self.parameters) == len(struct.members)
 
         member_names = [m[0] for m in struct.members]
-        memory = builder.alloca(struct.ir_type)
+        memory = builder.alloca(struct.get_ir_type(namespace))
         value = builder.load(memory)
         for i, (p, n) in enumerate(zip(self.parameters, member_names)):
             member_value = p.codegen(module, builder, namespace, f'{self.name}.{n}')
@@ -655,7 +660,7 @@ class IntegerLiteral(Expression):
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         value = int(self.text)
-        return namespace.get_type('i64').ir_type(value)
+        return namespace.get_type('i64').get_ir_type(namespace)(value)
 
     def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type('i64')
@@ -667,7 +672,7 @@ class FloatLiteral(Expression):
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         value = float(self.text)
-        return namespace.get_type('f64').ir_type(value)
+        return namespace.get_type('f64').get_ir_type(namespace)(value)
 
     def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type('f64')
@@ -679,7 +684,7 @@ class BoolLiteral(Expression):
         self.value = text == 'true'
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
-        return namespace.get_type('bool').ir_type(self.value)
+        return namespace.get_type('bool').get_ir_type(namespace)(self.value)
 
     def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type('bool')
@@ -695,14 +700,25 @@ class VariableReference(MemoryReference):
         self.name = name
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+        type_ = self.type(namespace)
         pointer = self.get_pointer(module, builder, namespace)
+        # The first part of this condition makes sure we keep referring to functions by their pointers.
+        # The second makes it so that if we're referring to a variable already (pointer here is a pointer to
+        # a pointer to a function) we actually dereference it once.
+        if isinstance(type_, ts.FunctionType) and not isinstance(pointer.type.pointee, ir.PointerType):
+            return pointer
         return builder.load(pointer, name=name)
 
     def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
-        return namespace.get_variable(self.name).value
+        value = namespace.get_value(self.name)
+        if isinstance(value, Function):
+            return get_or_create_llvm_function(module, namespace, value)
+        else:
+            assert isinstance(value, Variable)
+            return value.value
 
     def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_variable(self.name).type_
+        return namespace.get_value(self.name).type_
 
 
 class AddressOf(MemoryReference):
@@ -713,7 +729,7 @@ class AddressOf(MemoryReference):
         return self.variable.get_pointer(module, builder, namespace)
 
     def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_variable(self.variable.name).type_.as_pointer()
+        return namespace.get_value(self.variable.name).type_.as_pointer()
 
 
 class ValueAt(MemoryReference):
@@ -727,7 +743,7 @@ class ValueAt(MemoryReference):
         return pointer
 
     def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_variable(self.variable.name).type_.as_pointee()
+        return namespace.get_value(self.variable.name).type_.as_pointee()
 
     def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
         return self.variable.codegen(module, builder, namespace)
@@ -742,7 +758,7 @@ class Assignment(Statement):
         pointer = self.target.get_pointer(module, builder, namespace)
         value = self.expression.codegen(module, builder, namespace)
         destination_type = self.target.type(namespace)
-        adapted_value = destination_type.adapt(builder, value, self.expression.type(namespace))
+        adapted_value = destination_type.adapt(builder, namespace, value, self.expression.type(namespace))
         builder.store(adapted_value, pointer)
 
 
@@ -753,8 +769,8 @@ class ArrayLiteral(Expression):
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         type_ = self.type(namespace)
-        memory = builder.alloca(type_.ir_type, name=name)
-        i64 = namespace.get_type('i64').ir_type
+        memory = builder.alloca(type_.get_ir_type(namespace), name=name)
+        i64 = namespace.get_type('i64').get_ir_type(namespace)
 
         for index, initializer in enumerate(self.initializers):
             indexed_memory = builder.gep(memory, (i64(0), i64(index),))
@@ -784,8 +800,8 @@ class DotAccess(MemoryReference):
         left_pointer = self.left_side.get_pointer(module, builder, namespace)
         # i32 is mandatory when indexing within a structure.
         # See http://llvm.org/docs/LangRef.html#getelementptr-instruction
-        i32 = namespace.get_type('i32').ir_type
-        i64 = namespace.get_type('i64').ir_type
+        i32 = namespace.get_type('i32').get_ir_type(namespace)
+        i64 = namespace.get_type('i64').get_ir_type(namespace)
         return builder.gep(left_pointer, (i64(0), i32(member_index),))
 
     def type(self, namespace: Namespace) -> ts.Type:
@@ -807,7 +823,7 @@ class IndexAccess(MemoryReference):
         pointer_type = self.pointer.type(namespace)
         pointer = self.pointer.get_pointer(module, builder, namespace)
         index = self.index.codegen(module, builder, namespace)
-        i64 = namespace.get_type('i64').ir_type
+        i64 = namespace.get_type('i64').get_ir_type(namespace)
         # TODO remove conditional logic from here if possible
         if isinstance(pointer_type, ts.PointerType):
             pointer = builder.load(pointer)

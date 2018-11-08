@@ -1,13 +1,22 @@
 cimport "stdio.h";
 import std;
 
-def modify_parameter(number: i64*) -> void {
-	*number = 222;
+def modify_parameter(number: i64*, value: i64) -> void {
+	*number = value;
 }
 
 def main(argc: i64, argv: i8**) -> i64 {
 	let number = 111;
-	modify_parameter(&number);
+	modify_parameter(&number, 222);
 	assert(number == 222, "Value not modified by pointer");
+
+	let modify_parameter_clone = modify_parameter;
+	modify_parameter_clone(&number, 333);
+	assert(number == 333, "Value not modified by pointer");
+
+	let another_clone = modify_parameter_clone;
+	another_clone(&number, 444);
+	assert(number == 444, "Value not modified by pointer");
+
 	return 0;
 }

@@ -6,6 +6,7 @@ import subprocess
 from typing import cast, Iterator, List, MutableMapping, Optional, Tuple, Union
 
 from kotlang import ast
+from kotlang import typesystem as ts
 from kotlang.itertools import Peekable
 from kotlang.lexer import lex, Token, TokenType
 
@@ -157,13 +158,13 @@ def read_function_declaration(tokens: Peekable[Token]) -> ast.Function:
     name, type_parameters, parameters, return_type = read_function_header(tokens)
     assert not type_parameters
     expect(tokens, ';')
-    return ast.Function(name, [], parameters, return_type, None, foreign_library)
+    return ast.Function(name, ts.FunctionType(parameters, return_type), [], None, foreign_library)
 
 
 def read_function_definition(tokens: Peekable[Token]) -> ast.Function:
     name, type_parameters, parameters, return_type = read_function_header(tokens)
     code_block = read_code_block(tokens)
-    return ast.Function(name, type_parameters, parameters, return_type, code_block)
+    return ast.Function(name, ts.FunctionType(parameters, return_type), type_parameters, code_block)
 
 
 def read_import(tokens: Peekable[Token]) -> Tuple[str, ast.Module]:
@@ -214,7 +215,7 @@ def convert_c_function_declaration(declaration: cindex.Cursor) -> ast.Function:
     )
     # TODO make Function take TypeReference as return_type and remove this return_type.name thing
     assert isinstance(return_type, ast.BaseTypeReference)
-    return ast.Function(declaration.spelling, [], parameters, return_type.name, None, "c")
+    return ast.Function(declaration.spelling, ts.FunctionType(parameters, return_type.name), [], None, "c")
 
 
 def convert_c_type_reference(ref: cindex.Type) -> ast.TypeReference:
