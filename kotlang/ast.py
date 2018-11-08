@@ -174,23 +174,8 @@ class Variable(NamedValue):
     value: ir.Value
 
 
-@dataclass
-class GeneratedFunction:
-    function: Function
-    llvm_function: ir.Function
-
-    @property
-    def name(self) -> str:
-        return self.function.name
-
-
 NamespaceItem = Union[ts.Type, NamedValue]
 _T = TypeVar('_T', bound=NamespaceItem)
-
-
-class NamespaceType(Enum):
-    types = 1
-    values = 2
 
 
 @dataclass
