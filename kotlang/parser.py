@@ -137,15 +137,15 @@ def read_struct_definition(tokens: Peekable[Token]) -> ast.Struct:
     name = expect(tokens, TokenType.identifier).text
     expect(tokens, '{')
 
-    members: List[Tuple[str, str]] = []
+    members: List[Tuple[str, ast.TypeReference]] = []
 
     while tokens.peek().text != '}':
         member_name = expect(tokens, TokenType.identifier)
         expect(tokens, ':')
-        member_type = expect(tokens, TokenType.identifier)
+        member_type = read_type_reference(tokens)
         expect(tokens, ';')
         assert member_name.text not in members
-        members.append((member_name.text, member_type.text))
+        members.append((member_name.text, member_type))
     expect(tokens, '}')
     return ast.Struct(name, members)
 

@@ -2,6 +2,7 @@ cimport "stdio.h";
 
 struct Inner {
     x: i64;
+    y: i64*;
 }
 
 struct Outer {
@@ -9,7 +10,8 @@ struct Outer {
 }
 
 def main(argc: i64, argv: i8**) -> i64 {
-	let outer = Outer {Inner {1}};
+	let g: i64;
+	let outer = Outer {Inner {1, &g}};
 	printf("outer.inner.x: %d\n", outer.inner.x);
 
 	outer.inner.x = 2;

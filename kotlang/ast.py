@@ -40,10 +40,10 @@ class Node:
 @dataclass
 class Struct:
     name: str
-    members: List[Tuple[str, str]]
+    members: List[Tuple[str, TypeReference]]
 
     def get_type(self, namespace: Namespace) -> ts.Type:
-        members = [(n, namespace.get_type(t)) for n, t in self.members]
+        members = [(n, t.codegen(namespace)) for n, t in self.members]
         return ts.StructType(self.name, members)
 
 
