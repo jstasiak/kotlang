@@ -7,7 +7,7 @@ from llvmlite import ir
 
 # FIXME We have an import cycle here, get rid of it
 if TYPE_CHECKING:
-    from kotlang.ast import Namespace, ParameterList
+    from kotlang.ast import Namespace, ParameterList, TypeReference
 
 
 @dataclass
@@ -164,12 +164,11 @@ class ArrayType(Type):
 @dataclass
 class FunctionType(Type):
     parameters: ParameterList
-    return_type: str
+    return_type: TypeReference
 
     def get_ir_type(self, namespace: Namespace) -> ir.Type:
-        return_type = namespace.get_type(self.return_type).get_ir_type(namespace)
         return ir.FunctionType(
-            return_type,
+            self.return_type.codegen(namespace).get_ir_type(namespace),
             [p.type_.codegen(namespace).get_ir_type(namespace) for p in self.parameters],
             self.parameters.variadic,
         ).as_pointer()

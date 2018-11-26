@@ -210,9 +210,7 @@ def convert_c_function_declaration(declaration: cindex.Cursor) -> ast.Function:
         [ast.Parameter(n, t) for (n, t) in parameter_names_types],
         declaration.type.is_function_variadic(),
     )
-    # TODO make Function take TypeReference as return_type and remove this return_type.name thing
-    assert isinstance(return_type, ast.BaseTypeReference)
-    return ast.Function(declaration.spelling, ts.FunctionType(parameters, return_type.name), [], None)
+    return ast.Function(declaration.spelling, ts.FunctionType(parameters, return_type), [], None)
 
 
 def convert_c_type_reference(ref: cindex.Type) -> ast.TypeReference:
@@ -239,7 +237,7 @@ def read_module_text(name: str) -> str:
         return f.read()
 
 
-def read_function_header(tokens: Peekable[Token]) -> Tuple[str, List[str], ast.ParameterList, str]:
+def read_function_header(tokens: Peekable[Token]) -> Tuple[str, List[str], ast.ParameterList, ast.TypeReference]:
     expect(tokens, 'def')
     name = expect(tokens, TokenType.identifier)
     type_parameters = []
@@ -257,9 +255,9 @@ def read_function_header(tokens: Peekable[Token]) -> Tuple[str, List[str], ast.P
     expect(tokens, ')')
     if tokens.peek().text == '->':
         expect(tokens, '->')
-        return_type = expect(tokens, TokenType.identifier).text
+        return_type = read_type_reference(tokens)
     else:
-        return_type = 'void'
+        return_type = ast.BaseTypeReference('void')
     return name.text, type_parameters, parameters, return_type
 
 

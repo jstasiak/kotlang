@@ -100,7 +100,7 @@ def get_or_create_llvm_function(
                 function_namespace.add_value(Variable(p.name or f'param{i + 1}', parameter_type, memory))
 
             function.code_block.codegen(module, builder, function_namespace)
-            if function.type_.return_type == 'void':
+            if function.type_.return_type == BaseTypeReference('void'):
                 builder.ret_void()
             else:
                 # FIXME: We depend on having returned already but this is not ensured
