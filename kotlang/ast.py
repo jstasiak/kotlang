@@ -596,7 +596,8 @@ class StructInstantiation(Expression):
         self.parameters = parameters
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
-        struct = namespace.get_item(self.name, ts.StructType)
+        struct = namespace.get_type(self.name)
+        assert isinstance(struct, ts.StructType)
         assert len(self.parameters) == len(struct.members)
 
         member_names = [m[0] for m in struct.members]
