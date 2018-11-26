@@ -1,7 +1,7 @@
 cimport "stdio.h";
 import std;
 
-def modify_parameter(number: i64*, value: i64) -> void {
+def modify_parameter(number: i64*, value: i64) {
 	*number = value;
 }
 

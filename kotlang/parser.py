@@ -255,8 +255,11 @@ def read_function_header(tokens: Peekable[Token]) -> Tuple[str, List[str], ast.P
     expect(tokens, '(')
     parameters = read_function_parameters(tokens)
     expect(tokens, ')')
-    expect(tokens, '->')
-    return_type = expect(tokens, TokenType.identifier).text
+    if tokens.peek().text == '->':
+        expect(tokens, '->')
+        return_type = expect(tokens, TokenType.identifier).text
+    else:
+        return_type = 'void'
     return name.text, type_parameters, parameters, return_type
 
 
