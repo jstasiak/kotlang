@@ -199,15 +199,6 @@ class Namespace:
     def get_value(self, name: str) -> NamedValue:
         return self.get_item(name, NamedValue)
 
-    def item_iter(self, type_: TypingType[_T]) -> Iterator[_T]:
-        sub = cast(dict, self.types if issubclass(type_, ts.Type) else self.values)
-        for thing in sub.values():
-            if isinstance(thing, type_):
-                yield thing
-        for p in self.parents:
-            for f in p.item_iter(type_):
-                yield f
-
     def get_item(self, name: str, type_: TypingType[_T]) -> _T:
         sub = cast(dict, self.types if issubclass(type_, ts.Type) else self.values)
         return self._get_item(sub, name, type_)
