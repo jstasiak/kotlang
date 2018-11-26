@@ -155,7 +155,7 @@ class Module:
             module_namespace.add_type(s.get_type(module_namespace))
 
         for f in self.functions:
-            module_namespace.add_value(f)
+            module_namespace.add_function(f)
 
         nongeneric_functions = (f for f in self.functions if not f.is_generic)
         for f in nongeneric_functions:
@@ -180,12 +180,16 @@ class Namespace:
     parents: List[Namespace] = field(default_factory=list)
     types: Dict[str, ts.Type] = field(default_factory=dict)
     values: Dict[str, NamedValue] = field(default_factory=dict)
+    functions: Dict[str, Function] = field(default_factory=dict)
 
     def add_type(self, t: ts.Type, name: str = None) -> None:
         self._add_item(self.types, t, name)
 
     def add_value(self, t: NamedValue, name: str = None) -> None:
         self._add_item(self.values, t, name)
+
+    def add_function(self, t: Function) -> None:
+        self._add_item(self.functions, t)
 
     def _add_item(self, sub: Dict[str, _T], item: _T, name: str = None) -> None:
         # This method mutates sub
@@ -194,24 +198,23 @@ class Namespace:
         sub[name] = item
 
     def get_type(self, name: str) -> ts.Type:
-        return self.get_item(name, ts.Type)
+        return self._get_item('types', name)
 
     def get_value(self, name: str) -> NamedValue:
-        return self.get_item(name, NamedValue)
+        return self._get_item('values', name)
 
-    def get_item(self, name: str, type_: TypingType[_T]) -> _T:
-        sub = cast(dict, self.types if issubclass(type_, ts.Type) else self.values)
-        return self._get_item(sub, name, type_)
+    def get_function(self, name: str) -> Function:
+        return self._get_item('functions', name)
 
-    def _get_item(self, sub: dict, name: str, type_: TypingType[_T]) -> _T:
+    def _get_item(self, sub_name: str, name: str) -> Any:
+        sub = getattr(self, sub_name)
         try:
             result = sub[name]
-            assert isinstance(result, type_), (result, type_)
             return result
         except KeyError:
             for p in self.parents:
                 try:
-                    return p.get_item(name, type_)
+                    return p._get_item(sub_name, name)
                 except KeyError:
                     pass
             raise KeyError(name)
@@ -526,18 +529,21 @@ class FunctionCall(Expression):
         self.parameters = parameters
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
-        function = namespace.get_value(self.name)
-        if isinstance(function, Function):
+        function: Union[Function, NamedValue]
+        try:
+            function = namespace.get_function(self.name)
+        except KeyError:
+            function = namespace.get_value(self.name)
+            assert isinstance(function, Variable)
+            assert isinstance(function.type_, ts.FunctionType)
+            parameters = function.type_.parameters
+            llvm_function = builder.load(function.value)
+        else:
             if function.is_generic:
                 namespace = namespace_for_specialized_function(namespace, function, self.parameters)
 
             parameters = function.type_.parameters
             llvm_function = get_or_create_llvm_function(module, namespace, function)
-        else:
-            assert isinstance(function, Variable)
-            assert isinstance(function.type_, ts.FunctionType)
-            parameters = function.type_.parameters
-            llvm_function = builder.load(function.value)
 
         parameter_names = [p.name for p in parameters]
         # TODO: handle not enough parameters here
@@ -684,15 +690,23 @@ class VariableReference(MemoryReference):
         return builder.load(pointer, name=name)
 
     def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
-        value = namespace.get_value(self.name)
-        if isinstance(value, Function):
-            return get_or_create_llvm_function(module, namespace, value)
+        value: Union[Function, NamedValue]
+        try:
+            value = namespace.get_function(self.name)
+        except KeyError:
+            value = namespace.get_value(self.name)
+            return cast(Variable, value).value
         else:
-            assert isinstance(value, Variable)
-            return value.value
+            return get_or_create_llvm_function(module, namespace, value)
 
     def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_value(self.name).type_
+        value: Union[Function, NamedValue]
+        try:
+            value = namespace.get_function(self.name)
+        except KeyError:
+            value = namespace.get_value(self.name)
+
+        return value.type_
 
 
 class AddressOf(MemoryReference):
