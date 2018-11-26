@@ -152,13 +152,10 @@ def read_struct_definition(tokens: Peekable[Token]) -> ast.Struct:
 
 def read_function_declaration(tokens: Peekable[Token]) -> ast.Function:
     expect(tokens, 'extern')
-    foreign_library = None
-    if tokens.peek().type is TokenType.string_literal:
-        foreign_library = expect(tokens, TokenType.string_literal).text[1:-1]
     name, type_parameters, parameters, return_type = read_function_header(tokens)
     assert not type_parameters
     expect(tokens, ';')
-    return ast.Function(name, ts.FunctionType(parameters, return_type), [], None, foreign_library)
+    return ast.Function(name, ts.FunctionType(parameters, return_type), [], None)
 
 
 def read_function_definition(tokens: Peekable[Token]) -> ast.Function:
@@ -215,7 +212,7 @@ def convert_c_function_declaration(declaration: cindex.Cursor) -> ast.Function:
     )
     # TODO make Function take TypeReference as return_type and remove this return_type.name thing
     assert isinstance(return_type, ast.BaseTypeReference)
-    return ast.Function(declaration.spelling, ts.FunctionType(parameters, return_type.name), [], None, "c")
+    return ast.Function(declaration.spelling, ts.FunctionType(parameters, return_type.name), [], None)
 
 
 def convert_c_type_reference(ref: cindex.Type) -> ast.TypeReference:

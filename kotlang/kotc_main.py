@@ -81,7 +81,7 @@ def main(
             print(f'Cannot parse {os.path.basename(source)}: {e.message}', file=sys.stderr)
             sys.exit(1)
     with timer('Codegen'):
-        llvm_module, foreign_libraries = module.codegen_top_level(source)
+        llvm_module = module.codegen_top_level(source)
 
     base_name = os.path.splitext(source)[0]
 
@@ -114,7 +114,8 @@ def main(
         with timer('Linking'):
             command_line = [
                 'cc', direct_output,
-                *(f'-l{library}' for library in foreign_libraries),
+                # TODO: bring back declaring what libraries should we link with
+                # *(f'-l{library}' for library in ...),
                 '-o', final_output,
                 '-v',
             ]

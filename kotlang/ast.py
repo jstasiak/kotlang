@@ -57,7 +57,6 @@ class Function(NamedValue):
     type_: ts.FunctionType
     type_parameters: List[str]
     code_block: Optional[CodeBlock]
-    foreign_library: Optional[str] = None
 
     @property
     def is_generic(self) -> bool:
@@ -128,10 +127,8 @@ class Module:
         builtin_namespace.add_type(ts.FloatType(64))
 
         module = ir.Module(name=name)
-        namespace = self.codegen(module, builtin_namespace, MetaNamespace())
-        functions = namespace.item_iter(Function)
-        foreign_libraries = {f.foreign_library for f in functions} - {None}
-        return module, foreign_libraries
+        self.codegen(module, builtin_namespace, MetaNamespace())
+        return module
 
     def codegen(
         self,
