@@ -184,7 +184,7 @@ class Namespace:
     values: Dict[str, Variable] = field(default_factory=dict)
     functions: Dict[str, Function] = field(default_factory=dict)
 
-    def add_type(self, t: ts.Type, name: str = None) -> None:
+    def add_type(self, t: ts.Type, name: Optional[str] = None) -> None:
         self._add_item(self.types, t, name or t.name)
 
     def add_value(self, t: Variable) -> None:
@@ -199,13 +199,13 @@ class Namespace:
         sub[name] = item
 
     def get_type(self, name: str) -> ts.Type:
-        return self._get_item('types', name)
+        return cast(ts.Type, self._get_item('types', name))
 
     def get_value(self, name: str) -> Variable:
-        return self._get_item('values', name)
+        return cast(Variable, self._get_item('values', name))
 
     def get_function(self, name: str) -> Function:
-        return self._get_item('functions', name)
+        return cast(Function, self._get_item('functions', name))
 
     def _get_item(self, sub_name: str, name: str) -> Any:
         sub = getattr(self, sub_name)
@@ -265,7 +265,7 @@ class IfStatement(Statement):
         self,
         expression: Expression,
         first_statement: Statement,
-        second_statement: Statement = None,
+        second_statement: Optional[Statement] = None,
     ) -> None:
         self.expression = expression
         self.first_statement = first_statement
@@ -383,7 +383,7 @@ def loop_helper(
 
 
 class ReturnStatement(Statement):
-    def __init__(self, expression: Expression = None) -> None:
+    def __init__(self, expression: Optional[Expression] = None) -> None:
         self.expression = expression
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
@@ -398,7 +398,7 @@ class VariableDeclaration(Statement):
         self,
         name: str,
         expression: Optional[Expression],
-        type_: str = None,
+        type_: Optional[str] = None,
     ) -> None:
         assert expression is not None or type_ is not None, (expression, type_)
         self.name = name

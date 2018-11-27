@@ -4,7 +4,7 @@ import os
 import subprocess
 import sys
 import time
-from typing import Any, IO, Iterator
+from typing import Any, cast, IO, Iterator, Optional
 
 import click
 from llvmlite import binding as llvm, ir
@@ -14,7 +14,7 @@ from kotlang.parser import parse, ParseError
 
 
 class Emitter:
-    def __init__(self, optimization_level: int = None) -> None:
+    def __init__(self, optimization_level: Optional[int] = None) -> None:
         # All these initializations are required for code generation!
         llvm.initialize()
         llvm.initialize_native_target()
@@ -46,10 +46,10 @@ class Emitter:
         return str(self._module_to_llvm_module(module)).encode()
 
     def module_to_machine_code(self, module: ir.Module) -> bytes:
-        return self._target_machine.emit_object(self._module_to_llvm_module(module))
+        return cast(bytes, self._target_machine.emit_object(self._module_to_llvm_module(module)))
 
     def module_to_assembly(self, module: ir.Module) -> bytes:
-        return self._target_machine.emit_assembly(self._module_to_llvm_module(module)).encode()
+        return cast(bytes, self._target_machine.emit_assembly(self._module_to_llvm_module(module)).encode())
 
 
 @click.command()
