@@ -6,7 +6,6 @@ import subprocess
 from typing import cast, Iterator, List, MutableMapping, Optional, Tuple, Union
 
 from kotlang import ast
-from kotlang import typesystem as ts
 from kotlang.itertools import Peekable
 from kotlang.lexer import lex, Token, TokenType
 
@@ -155,13 +154,13 @@ def read_function_declaration(tokens: Peekable[Token]) -> ast.Function:
     name, type_parameters, parameters, return_type = read_function_header(tokens)
     assert not type_parameters
     expect(tokens, ';')
-    return ast.Function(name, ts.FunctionType(parameters, return_type), [], None)
+    return ast.Function(name, parameters, return_type, [], None)
 
 
 def read_function_definition(tokens: Peekable[Token]) -> ast.Function:
     name, type_parameters, parameters, return_type = read_function_header(tokens)
     code_block = read_code_block(tokens)
-    return ast.Function(name, ts.FunctionType(parameters, return_type), type_parameters, code_block)
+    return ast.Function(name, parameters, return_type, type_parameters, code_block)
 
 
 def read_import(tokens: Peekable[Token]) -> Tuple[str, ast.Module]:
@@ -210,7 +209,7 @@ def convert_c_function_declaration(declaration: cindex.Cursor) -> ast.Function:
         [ast.Parameter(n, t) for (n, t) in parameter_names_types],
         declaration.type.is_function_variadic(),
     )
-    return ast.Function(declaration.spelling, ts.FunctionType(parameters, return_type), [], None)
+    return ast.Function(declaration.spelling, parameters, return_type, [], None)
 
 
 def convert_c_type_reference(ref: cindex.Type) -> ast.TypeReference:

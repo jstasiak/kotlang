@@ -50,7 +50,8 @@ class Struct:
 @dataclass
 class Function:
     name: str
-    type_: ts.FunctionType
+    parameters: ParameterList
+    return_type: TypeReference
     type_parameters: List[str]
     code_block: Optional[CodeBlock]
 
@@ -66,6 +67,11 @@ class Function:
         type_values = [namespace.get_type(t).name for t in self.type_parameters]
         return mangle([self.name] + type_values)
 
+    def get_type(self, namespace: Namespace) -> ts.FunctionType:
+        return_type = self.return_type.codegen(namespace)
+        parameter_types = [p.type_.codegen(namespace) for p in self.parameters]
+        return ts.FunctionType(parameter_types, return_type, self.parameters.variadic)
+
 
 def get_or_create_llvm_function(
     module: ir.Module,
@@ -77,11 +83,11 @@ def get_or_create_llvm_function(
         llvm_function = module.globals[symbol_name]
         assert isinstance(llvm_function, ir.Function)
     except KeyError:
-        parameters = function.type_.parameters
-        function_type = function.type_.get_ir_type(namespace).pointee
+        ft = function.get_type(namespace)
+        ir_ft = ft.get_ir_type(namespace)
 
-        llvm_function = ir.Function(module, function_type, name=symbol_name)
-        for i, (p, arg) in enumerate(zip(parameters, llvm_function.args)):
+        llvm_function = ir.Function(module, ir_ft, name=symbol_name)
+        for i, (p, arg) in enumerate(zip(function.parameters, llvm_function.args)):
             arg.name = (p.name or f'param{i + 1}') + '_arg'
 
         if function.code_block is not None:
@@ -89,14 +95,15 @@ def get_or_create_llvm_function(
             builder = ir.IRBuilder(block)
 
             function_namespace = Namespace(parents=[namespace])
-            for i, (p, arg) in enumerate(zip(parameters, llvm_function.args)):
-                memory = builder.alloca(arg.type, name=p.name)
+            parameter_types = zip(function.parameters, ft.parameter_types)
+            for i, (pt, arg) in enumerate(zip(parameter_types, llvm_function.args)):
+                (parameter, parameter_type) = pt
+                memory = builder.alloca(arg.type, name=parameter.name)
                 builder.store(arg, memory)
-                parameter_type = p.type_.codegen(namespace)
-                function_namespace.add_value(Variable(p.name or f'param{i + 1}', parameter_type, memory))
+                function_namespace.add_value(Variable(parameter.name or f'param{i + 1}', parameter_type, memory))
 
             function.code_block.codegen(module, builder, function_namespace)
-            if function.type_.return_type == BaseTypeReference('void'):
+            if ft.return_type == ts.void:
                 builder.ret_void()
             else:
                 # FIXME: We depend on having returned already but this is not ensured
@@ -400,7 +407,13 @@ class VariableDeclaration(Statement):
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
         type_ = namespace.get_type(self.type_) if self.type_ else cast(Expression, self.expression).type(namespace)
-        memory = builder.alloca(type_.get_ir_type(namespace), name=self.name)
+        ir_type = type_.get_ir_type(namespace)
+        if isinstance(type_, ts.FunctionType):
+            # TODO: now our typesystem things we're dealing with functions while actually we're
+            # dealing with function pointers. See if this can be ironed out. If it can't then see
+            # if the abstraction is right.
+            ir_type = ir_type.as_pointer()
+        memory = builder.alloca(ir_type, name=self.name)
         namespace.add_value(Variable(self.name, type_, memory))
         if self.expression is not None:
             value = self.expression.codegen(module, builder, namespace)
@@ -524,37 +537,42 @@ class FunctionCall(Expression):
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         function: Union[Function, Variable]
+        parameter_names: List[str]
         try:
             function = namespace.get_function(self.name)
         except KeyError:
             function = namespace.get_value(self.name)
             assert isinstance(function, Variable)
             assert isinstance(function.type_, ts.FunctionType)
-            parameters = function.type_.parameters
+            parameter_types = function.type_.parameter_types
+            # TODO provide parameter names here somehow? We don't have them right now.
+            parameter_names = []
             llvm_function = builder.load(function.value)
+            ft = function.type_
         else:
             if function.is_generic:
                 namespace = namespace_for_specialized_function(namespace, function, self.parameters)
 
-            parameters = function.type_.parameters
+            ft = function.get_type(namespace)
+            parameter_types = ft.parameter_types
+            # TODO: eliminate this "or ''" below
+            parameter_names = [p.name or '' for p in function.parameters]
             llvm_function = get_or_create_llvm_function(module, namespace, function)
 
-        parameter_names = [p.name for p in parameters]
         # TODO: handle not enough parameters here
-        assert len(self.parameters) == len(parameter_names) or \
-            parameters.variadic and len(self.parameters) > len(parameter_names), \
-            (parameters, self.parameters, parameter_names)
+        assert len(self.parameters) == len(parameter_types) or \
+            ft.variadic and len(self.parameters) > len(parameter_types), \
+            (ft, self.parameters)
         parameter_values = [
             p.codegen(module, builder, namespace, f'{self.name}.{n}')
-            for (p, n) in zip_longest(self.parameters, parameter_names, fillvalue='vararg')
+            for (p, n) in zip_longest(self.parameters, parameter_names, fillvalue='arg')
         ]
 
         assert len(self.parameters) >= len(parameter_names), (self.name, self.parameters)
 
-        expected_parameter_types = [p.type_.codegen(namespace) for p in parameters]
-        parameter_types = [p.type(namespace) for p in self.parameters]
+        provided_parameter_types = [p.type(namespace) for p in self.parameters]
         for i, (value, from_type, to_type) in enumerate(
-            zip(parameter_values, parameter_types, expected_parameter_types),
+            zip(parameter_values, provided_parameter_types, parameter_types),
         ):
             parameter_values[i] = to_type.adapt(builder, namespace, value, from_type)
 
@@ -576,7 +594,7 @@ def namespace_for_specialized_function(
     arguments: Collection[Expression],
 ) -> Namespace:
     mapping: Dict[str, ts.Type] = {}
-    for parameter, expression in zip(function.type_.parameters, arguments):
+    for parameter, expression in zip(function.parameters, arguments):
         assert isinstance(parameter.type_, BaseTypeReference), 'TODO support pointers etc. here'
         type_name = parameter.type_.name
         if type_name in function.type_parameters:
@@ -696,11 +714,12 @@ class VariableReference(MemoryReference):
     def type(self, namespace: Namespace) -> ts.Type:
         value: Union[Function, Variable]
         try:
-            value = namespace.get_function(self.name)
+            function = namespace.get_function(self.name)
         except KeyError:
-            value = namespace.get_value(self.name)
-
-        return value.type_
+            variable = namespace.get_value(self.name)
+            return variable.type_
+        else:
+            return function.get_type(namespace)
 
 
 class AddressOf(MemoryReference):
