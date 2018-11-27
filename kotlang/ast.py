@@ -47,12 +47,8 @@ class Struct:
         return ts.StructType(self.name, members)
 
 
-class NamedValue:
-    type_: ts.Type
-
-
 @dataclass
-class Function(NamedValue):
+class Function:
     name: str
     type_: ts.FunctionType
     type_parameters: List[str]
@@ -165,42 +161,40 @@ class Module:
 
 
 @dataclass
-class Variable(NamedValue):
+class Variable:
     name: str
     type_: ts.Type
     value: ir.Value
 
 
-NamespaceItem = Union[ts.Type, NamedValue]
-_T = TypeVar('_T', bound=NamespaceItem)
+_T = TypeVar('_T')
 
 
 @dataclass
 class Namespace:
     parents: List[Namespace] = field(default_factory=list)
     types: Dict[str, ts.Type] = field(default_factory=dict)
-    values: Dict[str, NamedValue] = field(default_factory=dict)
+    values: Dict[str, Variable] = field(default_factory=dict)
     functions: Dict[str, Function] = field(default_factory=dict)
 
     def add_type(self, t: ts.Type, name: str = None) -> None:
-        self._add_item(self.types, t, name)
+        self._add_item(self.types, t, name or t.name)
 
-    def add_value(self, t: NamedValue, name: str = None) -> None:
-        self._add_item(self.values, t, name)
+    def add_value(self, t: Variable) -> None:
+        self._add_item(self.values, t, t.name)
 
     def add_function(self, t: Function) -> None:
-        self._add_item(self.functions, t)
+        self._add_item(self.functions, t, t.name)
 
-    def _add_item(self, sub: Dict[str, _T], item: _T, name: str = None) -> None:
+    def _add_item(self, sub: Dict[str, _T], item: _T, name: str) -> None:
         # This method mutates sub
-        name = name if name is not None else item.name
         assert name not in sub, name
         sub[name] = item
 
     def get_type(self, name: str) -> ts.Type:
         return self._get_item('types', name)
 
-    def get_value(self, name: str) -> NamedValue:
+    def get_value(self, name: str) -> Variable:
         return self._get_item('values', name)
 
     def get_function(self, name: str) -> Function:
@@ -529,7 +523,7 @@ class FunctionCall(Expression):
         self.parameters = parameters
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
-        function: Union[Function, NamedValue]
+        function: Union[Function, Variable]
         try:
             function = namespace.get_function(self.name)
         except KeyError:
@@ -690,17 +684,17 @@ class VariableReference(MemoryReference):
         return builder.load(pointer, name=name)
 
     def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
-        value: Union[Function, NamedValue]
+        value: Union[Function, Variable]
         try:
             value = namespace.get_function(self.name)
         except KeyError:
             value = namespace.get_value(self.name)
-            return cast(Variable, value).value
+            return value.value
         else:
             return get_or_create_llvm_function(module, namespace, value)
 
     def type(self, namespace: Namespace) -> ts.Type:
-        value: Union[Function, NamedValue]
+        value: Union[Function, Variable]
         try:
             value = namespace.get_function(self.name)
         except KeyError:
