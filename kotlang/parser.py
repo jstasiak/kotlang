@@ -223,11 +223,23 @@ def convert_c_type_reference(ref: cindex.Type) -> ast.TypeReference:
     return t
 
 
+# The compiler targets 64-bit Mac and Linux environments, mappings based on
+# https://en.wikipedia.org/wiki/64-bit_computing#64-bit_data_models
 c_types_mapping = {
     cindex.TypeKind.INT: 'i32',  # type: ignore
+    cindex.TypeKind.UINT: 'u32',  # type: ignore
     cindex.TypeKind.CHAR_S: 'i8',  # type: ignore
+    cindex.TypeKind.UCHAR: 'u8',  # type: ignore
+    cindex.TypeKind.SHORT: 'i16',  # type: ignore
+    cindex.TypeKind.USHORT: 'u16',  # type: ignore
+    cindex.TypeKind.LONG: 'i64',  # type: ignore
     cindex.TypeKind.ULONG: 'u64',  # type: ignore
+    cindex.TypeKind.LONGLONG: 'i64',  # type: ignore
+    cindex.TypeKind.ULONGLONG: 'i64',  # type: ignore
     cindex.TypeKind.VOID: 'void',  # type: ignore
+    cindex.TypeKind.FLOAT: 'f32',  # type: ignore
+    cindex.TypeKind.DOUBLE: 'f64',  # type: ignore
+    cindex.TypeKind.LONGDOUBLE: 'f80',  # type: ignore
 }
 
 
