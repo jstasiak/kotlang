@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, List, Tuple, TYPE_CHECKING
+from typing import Any, cast, List, Tuple, TYPE_CHECKING
 
 from llvmlite import ir
 
@@ -85,7 +85,31 @@ class FloatType(Type):
         return f'f{self.bits}'
 
     def get_ir_type(self) -> ir.Type:
-        return ir.FloatType() if self.bits == 32 else ir.DoubleType()
+        return {
+            32: ir.FloatType(),
+            64: ir.DoubleType(),
+            80: IRLongDoubleType(),
+        }[self.bits]
+
+
+class IRLongDoubleType(ir.types._BaseFloatType):  # type: ignore
+    # So the story of this class is llvmlite only exposes float (32-bit) and double (64-bit) types.
+    # On my Mac when I use "long double" clang uses x86_fp80 type in the default configuration so
+    # let's use it.
+    # TODO: See if this is actually correct.
+    null = '0.0'
+    intrinsic_name = 'x86_fp80'
+
+    def __str__(self) -> str:
+        return 'long double'
+
+    def format_constant(self, value: float) -> str:
+        # TODO: is _format_double enough here?
+        return cast(str, ir.types._format_double(value))
+
+
+# llvmlite does this internally for the builtin types, we follow suit.
+IRLongDoubleType._create_instance()
 
 
 @dataclass

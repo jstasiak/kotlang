@@ -126,8 +126,8 @@ class Module:
         for signed in {True, False}:
             for bits in {8, 16, 32, 64}:
                 builtin_namespace.add_type(ts.IntType(bits, signed=signed))
-        builtin_namespace.add_type(ts.FloatType(32))
-        builtin_namespace.add_type(ts.FloatType(64))
+        for bits in [32, 64, 80]:
+            builtin_namespace.add_type(ts.FloatType(bits))
 
         module = ir.Module(name=name)
         self.codegen(module, builtin_namespace, MetaNamespace())
