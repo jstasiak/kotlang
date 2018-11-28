@@ -297,9 +297,14 @@ def read_variable_name(tokens: Peekable[Token]) -> str:
 def read_type_reference(tokens: Peekable[Token]) -> ast.TypeReference:
     base_name = expect(tokens, TokenType.identifier)
     reference: ast.TypeReference = ast.BaseTypeReference(base_name.text)  # noqa: E701
-    while tokens.peek().text == '*':
-        next(tokens)
-        reference = reference.as_pointer()
+    while tokens.peek().text in ['*', '[']:
+        token = next(tokens)
+        if token.text == '*':
+            reference = reference.as_pointer()
+        else:
+            length = read_primary_expression(tokens)
+            expect(tokens, ']')
+            reference = ast.ArrayTypeReference(reference, length)
     return reference
 
 
@@ -587,7 +592,7 @@ def read_variable_declaration(tokens: Peekable[Token]) -> ast.VariableDeclaratio
     type_ = None
     if tokens.peek().text == ':':
         next(tokens)
-        type_ = expect(tokens, TokenType.identifier).text
+        type_ = read_type_reference(tokens)
 
     needs_initializer = type_ is None
     initializer = None

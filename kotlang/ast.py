@@ -398,7 +398,7 @@ class VariableDeclaration(Statement):
         self,
         name: str,
         expression: Optional[Expression],
-        type_: Optional[str] = None,
+        type_: Optional[TypeReference] = None,
     ) -> None:
         assert expression is not None or type_ is not None, (expression, type_)
         self.name = name
@@ -406,7 +406,10 @@ class VariableDeclaration(Statement):
         self.type_ = type_
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
-        type_ = namespace.get_type(self.type_) if self.type_ else cast(Expression, self.expression).type(namespace)
+        type_ = (
+            self.type_.codegen(namespace) if self.type_ is not None
+            else cast(Expression, self.expression).type(namespace)
+        )
         ir_type = type_.get_ir_type()
         if isinstance(type_, ts.FunctionType):
             # TODO: now our typesystem things we're dealing with functions while actually we're
@@ -862,6 +865,19 @@ class BaseTypeReference(TypeReference):
 
     def most_basic_type(self) -> BaseTypeReference:
         return self
+
+
+@dataclass
+class ArrayTypeReference(TypeReference):
+    base: TypeReference
+    length: Expression
+
+    def codegen(self, namespace: Namespace) -> ts.Type:
+        assert isinstance(self.length, IntegerLiteral)
+        return ts.ArrayType(self.base.codegen(namespace), int(self.length.text))
+
+    def most_basic_type(self) -> BaseTypeReference:
+        return self.base.most_basic_type()
 
 
 @dataclass

@@ -13,5 +13,11 @@ def main(argc: i64, argv: i8**) -> i64 {
 	printf("array[0]: %d\n", array[0]);
 	printf("array[1]: %d\n", array[1]);
 	printf("sum: %d\n", sum(array, 2));
+
+	let array2: i64[2] = [44, 55];
+	printf("array2[0]: %d\n", array2[0]);
+	printf("array2[1]: %d\n", array2[1]);
+	printf("sum: %d\n", sum(array2, 2));
+
 	return 0;
 }
