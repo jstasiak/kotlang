@@ -431,6 +431,9 @@ class Expression(Statement):
     def type(self, namespace: Namespace) -> ts.Type:
         raise NotImplementedError(f'type() not implemented for {type(self)}')
 
+    def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
+        raise AssertionError(f'{type(self).__name__} cannot be used as a l-value nor can you grab its address')
+
 
 class NegativeExpression(Expression):
     def __init__(self, expression: Expression) -> None:
@@ -753,8 +756,8 @@ class ValueAt(MemoryReference):
         return self.variable.codegen(module, builder, namespace)
 
 
-class Assignment(Statement):
-    def __init__(self, target: MemoryReference, expression: Expression) -> None:
+class Assignment(Expression):
+    def __init__(self, target: Expression, expression: Expression) -> None:
         self.target = target
         self.expression = expression
 

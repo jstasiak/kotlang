@@ -348,52 +348,25 @@ def read_statement(tokens: Peekable[Token], *, eat_semicolon: bool = True) -> as
     elif next_token.text == 'match':
         statement = read_pattern_match(tokens)
         needs_semicolon = False
-    elif looks_like_assignment(tokens):
-        statement = read_assignment(tokens)
     else:
-        statement = read_expression(tokens)
+        statement = read_assignment_expression(tokens)
     if needs_semicolon and eat_semicolon:
         expect(tokens, ';')
     return statement
 
 
-def looks_like_assignment(tokens: Peekable[Token]) -> bool:
-    next_one = tokens.peek()
-    if next_one.type is not TokenType.identifier and next_one.text != '*':
-        return False
-
-    index = 0
-    while tokens.peek_nth(index).text == '*':
-        index += 1
-    index += 1
-
-    while tokens.peek_nth(index).text == '.' and tokens.peek_nth(index + 1).type is TokenType.identifier:
-        index += 2
-
-    return tokens.peek_nth(index).text == '='
-
-
-def read_assignment(tokens: Peekable[Token]) -> ast.Assignment:
+def read_assignment_expression(tokens: Peekable[Token]) -> ast.Expression:
     # TODO: implement robust lvalue concept
-    dereference_level = 0
-    while tokens.peek().text == '*':
+    operands = [read_expression(tokens)]
+
+    while tokens.peek().text == '=':
         next(tokens)
-        dereference_level += 1
+        operands.append(read_expression(tokens))
 
-    assert dereference_level < 2, 'More dereference not supported at the moment'
-
-    target: ast.MemoryReference = ast.VariableReference(expect(tokens, TokenType.identifier).text)
-    if dereference_level:
-        target = ast.ValueAt(cast(ast.VariableReference, target))
-
-    while tokens.peek().text == '.':
-        next(tokens)
-        right_name = expect(tokens, TokenType.identifier).text
-        target = ast.DotAccess(target, right_name)
-
-    expect(tokens, '=')
-    expression = read_expression(tokens)
-    return ast.Assignment(target, expression)
+    result: ast.Expression = operands[-1]
+    for left in reversed(operands[0:-1]):
+        result = ast.Assignment(left, result)
+    return result
 
 
 def read_if_statement(tokens: Peekable[Token]) -> ast.Statement:
