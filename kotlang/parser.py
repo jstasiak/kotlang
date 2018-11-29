@@ -437,7 +437,7 @@ def read_pattern_match(tokens: Peekable[Token]) -> ast.Statement:
 def read_comparison_expression(tokens: Peekable[Token]) -> ast.Expression:
     # ComparisonExpression = AddExpression [("<" | ">" | "<=" | ">=" | "==") AddExpression]
     expression = read_add_expression(tokens)
-    if tokens.peek().text in {'<', '>', '<=', '>=', '=='}:
+    if tokens.peek().text in {'<', '>', '<=', '>=', '==', '!='}:
         operator = next(tokens).text
         right_expression = read_add_expression(tokens)
         expression = ast.BinaryExpression(expression, operator, right_expression)

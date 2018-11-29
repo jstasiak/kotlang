@@ -25,5 +25,9 @@ def main(argc: i64, argv: i8**) -> i64 {
 		assert(a == 123, "multi-assign doesn't work");
 		assert(b == 123, "multi-assign doesn't work");
 	}
+
+	{
+		assert(0 != 1, "0 == 1 O.o");
+	}
 	return 0;
 }
