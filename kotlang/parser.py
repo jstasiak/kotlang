@@ -106,11 +106,11 @@ def expect_no_eat(tokens: Peekable[Token], *what: ExpectedTokenT) -> Token:
 def read_module(tokens: Peekable[Token]) -> ast.Module:
     # Module = (FunctionDefinition | FunctionDeclaration | StructDefinition)*;
     functions = []
-    structs = []
+    types: List[ast.TypeDefinition] = []
     imports = []
     cfunctions = {}
     while tokens.peek().type is not TokenType.eof:
-        next_text = expect_no_eat(tokens, 'def', 'extern', 'struct', 'import', 'cimport').text
+        next_text = expect_no_eat(tokens, 'def', 'extern', 'struct', 'import', 'cimport', 'union').text
         if next_text == 'extern':
             functions.append(read_function_declaration(tokens))
         elif next_text == 'def':
@@ -119,13 +119,15 @@ def read_module(tokens: Peekable[Token]) -> ast.Module:
             imports.append(read_import(tokens))
         elif next_text == 'cimport':
             cfunctions.update({f.name: f for f in read_cimport(tokens)})
+        elif next_text == 'union':
+            types.append(read_union_definition(tokens))
         else:
-            structs.append(read_struct_definition(tokens))
+            types.append(read_struct_definition(tokens))
 
     if cfunctions:
         imports.append(('c', ast.Module([], list(cfunctions.values()), [])))
 
-    return ast.Module(structs, functions, imports)
+    return ast.Module(types, functions, imports)
 
 
 def read_struct_definition(tokens: Peekable[Token]) -> ast.Struct:
@@ -134,6 +136,21 @@ def read_struct_definition(tokens: Peekable[Token]) -> ast.Struct:
     # StructMember = name ":" name;
     expect(tokens, 'struct')
     name = expect(tokens, TokenType.identifier).text
+    members = read_struct_body(tokens)
+    return ast.Struct(name, members)
+
+
+def read_union_definition(tokens: Peekable[Token]) -> ast.Union:
+    # UnionDefinition = "struct" name "{" UnionMembers "}";
+    # UnionMembers = UnionMember ";" [UnionMembers] | empty;
+    # UnionMember = name ":" name;
+    expect(tokens, 'union')
+    name = expect(tokens, TokenType.identifier).text
+    members = read_struct_body(tokens)
+    return ast.Union(name, members)
+
+
+def read_struct_body(tokens: Peekable[Token]) -> List[Tuple[str, ast.TypeReference]]:
     expect(tokens, '{')
 
     members: List[Tuple[str, ast.TypeReference]] = []
@@ -146,7 +163,7 @@ def read_struct_definition(tokens: Peekable[Token]) -> ast.Struct:
         assert member_name.text not in members
         members.append((member_name.text, member_type))
     expect(tokens, '}')
-    return ast.Struct(name, members)
+    return members
 
 
 def read_function_declaration(tokens: Peekable[Token]) -> ast.Function:

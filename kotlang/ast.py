@@ -6,7 +6,7 @@ from itertools import zip_longest
 from typing import (
     Any, cast, Collection, Dict, Iterable, Iterator, List,
     Mapping, MutableMapping, Optional,
-    Tuple, Type as TypingType, TypeVar, Union,
+    Tuple, Type as TypingType, TypeVar, Union as TypingUnion,
 )
 
 from llvmlite import ir
@@ -37,14 +37,29 @@ class Node:
     pass
 
 
+class TypeDefinition:
+    def get_type(self, namespace: Namespace) -> ts.Type:
+        raise NotImplementedError()
+
+
 @dataclass
-class Struct:
+class Struct(TypeDefinition):
     name: str
     members: List[Tuple[str, TypeReference]]
 
     def get_type(self, namespace: Namespace) -> ts.Type:
         members = [(n, t.codegen(namespace)) for n, t in self.members]
         return ts.StructType(self.name, members)
+
+
+@dataclass
+class Union(TypeDefinition):
+    name: str
+    members: List[Tuple[str, TypeReference]]
+
+    def get_type(self, namespace: Namespace) -> ts.Type:
+        members = [(n, t.codegen(namespace)) for n, t in self.members]
+        return ts.UnionType(self.name, members)
 
 
 @dataclass
@@ -115,7 +130,7 @@ def get_or_create_llvm_function(
 
 @dataclass
 class Module:
-    structs: List[Struct]
+    types: List[TypeDefinition]
     functions: List[Function]
     imports: List[Tuple[str, Module]]
 
@@ -154,8 +169,8 @@ class Module:
             import_namespaces.append(imported_namespace)
 
         module_namespace = Namespace(parents=[parent_namespace, *import_namespaces])
-        for s in self.structs:
-            module_namespace.add_type(s.get_type(module_namespace))
+        for td in self.types:
+            module_namespace.add_type(td.get_type(module_namespace))
 
         for f in self.functions:
             module_namespace.add_function(f)
@@ -542,7 +557,7 @@ class FunctionCall(Expression):
         self.parameters = parameters
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
-        function: Union[Function, Variable]
+        function: TypingUnion[Function, Variable]
         parameter_names: List[str]
         try:
             function = namespace.get_function(self.name)
@@ -708,7 +723,7 @@ class VariableReference(MemoryReference):
         return builder.load(pointer, name=name)
 
     def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
-        value: Union[Function, Variable]
+        value: TypingUnion[Function, Variable]
         try:
             value = namespace.get_function(self.name)
         except KeyError:
@@ -718,7 +733,7 @@ class VariableReference(MemoryReference):
             return get_or_create_llvm_function(module, namespace, value)
 
     def type(self, namespace: Namespace) -> ts.Type:
-        value: Union[Function, Variable]
+        value: TypingUnion[Function, Variable]
         try:
             function = namespace.get_function(self.name)
         except KeyError:
@@ -809,18 +824,13 @@ class DotAccess(MemoryReference):
 
     def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
         left_type = self.left_side.type(namespace)
-        assert isinstance(left_type, ts.StructType)
-        member_index = left_type.get_member_index(self.member)
+        assert isinstance(left_type, ts.DottableType), left_type
         left_pointer = self.left_side.get_pointer(module, builder, namespace)
-        # i32 is mandatory when indexing within a structure.
-        # See http://llvm.org/docs/LangRef.html#getelementptr-instruction
-        i32 = namespace.get_type('i32').get_ir_type()
-        i64 = namespace.get_type('i64').get_ir_type()
-        return builder.gep(left_pointer, (i64(0), i32(member_index),))
+        return left_type.get_member_pointer(builder, left_pointer, self.member)
 
     def type(self, namespace: Namespace) -> ts.Type:
         left_type = self.left_side.type(namespace)
-        assert isinstance(left_type, ts.StructType)
+        assert isinstance(left_type, ts.DottableType), left_type
         return left_type.get_member_type(self.member)
 
 

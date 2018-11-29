@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, cast, List, Tuple, TYPE_CHECKING
+from typing import Any, cast, List, Optional, Tuple, TYPE_CHECKING
 
 from llvmlite import ir
 
@@ -28,6 +28,12 @@ class Type:
     def adapt(self, builder: ir.IRBuilder, value: ir.Value, from_type: Type) -> ir.Value:
         assert self == from_type, f'Cannot adapt {from_type.name} to {self.name}'
         return value
+
+    def alignment(self) -> Optional[int]:
+        return None
+
+    def get_required_size_in_bytes(self) -> int:
+        raise NotImplementedError(type(self).__name__)
 
 
 @dataclass
@@ -74,6 +80,9 @@ class IntType(Type):
         else:
             assert not self.signed
             return builder.zext(value, ir_type)
+
+    def get_required_size_in_bytes(self) -> int:
+        return cast(int, self.bits / 8)
 
 
 @dataclass
@@ -145,8 +154,16 @@ class PointerType(Type):
         return super().adapt(builder, value, from_type)
 
 
+class DottableType(Type):
+    def get_member_type(self, name: str) -> Type:
+        raise NotImplementedError()
+
+    def get_member_pointer(self, builder: ir.IRBuilder, base_pointer: ir.Value, name: str) -> ir.Value:
+        raise NotImplementedError()
+
+
 @dataclass
-class StructType(Type):
+class StructType(DottableType):
     struct_name: str
     members: List[Tuple[str, Type]]
 
@@ -158,17 +175,54 @@ class StructType(Type):
         member_types = [t.get_ir_type() for n, t in self.members]
         return ir.LiteralStructType(member_types)
 
-    def get_member_index(self, name: str) -> int:
+    def get_member_pointer(self, builder: ir.IRBuilder, base_pointer: ir.Value, name: str) -> ir.Value:
+        member_index = -1
         for i, (n, t) in enumerate(self.members):
             if n == name:
-                return i
-        raise KeyError()
+                member_index = i
+        if member_index == -1:
+            raise KeyError()
+
+        # i32 is mandatory when indexing within a structure.
+        # See http://llvm.org/docs/LangRef.html#getelementptr-instruction
+        i32 = ir.IntType(32)
+        i64 = ir.IntType(64)
+        return builder.gep(base_pointer, (i64(0), i32(member_index),))
 
     def get_member_type(self, name: str) -> Type:
         for n, t in self.members:
             if n == name:
                 return t
         raise KeyError()
+
+
+@dataclass
+class UnionType(DottableType):
+    union_name: str
+    members: List[Tuple[str, Type]]
+
+    @property
+    def name(self) -> str:
+        return self.union_name
+
+    def get_ir_type(self) -> ir.Type:
+        size = max(t.get_required_size_in_bytes() for (_, t) in self.members)
+        return ir.LiteralStructType([ir.ArrayType(ir.IntType(8), size)])
+
+    def get_member_pointer(self, builder: ir.IRBuilder, base_pointer: ir.Value, name: str) -> ir.Value:
+        member_type = self.get_member_type(name)
+        member_ir_type = member_type.get_ir_type()
+        return builder.bitcast(base_pointer, member_ir_type.as_pointer())
+
+    def get_member_type(self, name: str) -> Type:
+        for n, t in self.members:
+            if n == name:
+                return t
+        raise KeyError()
+
+    def alignment(self) -> int:
+        # TODO: deduce this
+        return 8
 
 
 @dataclass
@@ -182,6 +236,9 @@ class ArrayType(Type):
 
     def get_ir_type(self) -> ir.Type:
         return ir.ArrayType(self.element_type.get_ir_type(), self.length)
+
+    def get_required_size_in_bytes(self) -> int:
+        return self.length * self.element_type.get_required_size_in_bytes()
 
 
 @dataclass

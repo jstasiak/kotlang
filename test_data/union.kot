@@ -1,0 +1,23 @@
+import std;
+
+union U {
+    a: i64;
+	b: i8[3];
+}
+
+def main(argc: i64, argv: i8**) -> i64 {
+	let u: U;
+	u.a = 0;
+	assert(u.a == 0, "u.a != 0");
+	for(let i = 0; i < 3; i = i + 1) {
+		assert(u.b[i] == 0, "u.b[i] != 0");
+	}
+
+	u.b[2] = 1;
+	assert(u.a != 0, "u.a == 0");
+
+	// TODO: assert(sizeof(...))
+	// TODO: assert(alignmentof(...))
+
+	return 0;
+}
