@@ -1,4 +1,5 @@
 cimport "stdio.h";
+import std;
 
 def main(argc: i64, argv: i8**) -> i64 {
 	let a = 1;
@@ -17,5 +18,12 @@ def main(argc: i64, argv: i8**) -> i64 {
 	//let no_explicit_value: i64;
 	//printf("no_explicit_value: %d\n", no_explicit_value);
 
+	{
+		let a: i64;
+		let b: i64;
+		a = b = 123;
+		assert(a == 123, "multi-assign doesn't work");
+		assert(b == 123, "multi-assign doesn't work");
+	}
 	return 0;
 }

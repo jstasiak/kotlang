@@ -761,12 +761,19 @@ class Assignment(Expression):
         self.target = target
         self.expression = expression
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> None:
+    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         pointer = self.target.get_pointer(module, builder, namespace)
         value = self.expression.codegen(module, builder, namespace)
         destination_type = self.target.type(namespace)
         adapted_value = destination_type.adapt(builder, value, self.expression.type(namespace))
         builder.store(adapted_value, pointer)
+        return value
+
+    def type(self, namespace: Namespace) -> ts.Type:
+        # TODO and possibly quite important - type of expression can be different than the type of the target
+        # (for example expression of type i8 assigned to i64 location) - which one should we use?
+        # For now we take the original value but it may not be expected or desired.
+        return self.expression.type(namespace)
 
 
 class ArrayLiteral(Expression):
