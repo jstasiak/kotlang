@@ -110,7 +110,7 @@ class IRLongDoubleType(ir.types._BaseFloatType):  # type: ignore
     intrinsic_name = 'x86_fp80'
 
     def __str__(self) -> str:
-        return 'long double'
+        return self.intrinsic_name
 
     def format_constant(self, value: float) -> str:
         # TODO: is _format_double enough here?
