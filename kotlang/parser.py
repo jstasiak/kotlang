@@ -109,6 +109,7 @@ def read_module(tokens: Peekable[Token]) -> ast.Module:
     types: List[ast.TypeDefinition] = []
     imports = []
     cfunctions = {}
+    ctypes = {}
     while tokens.peek().type is not TokenType.eof:
         next_text = expect_no_eat(tokens, 'def', 'extern', 'struct', 'import', 'cimport', 'union').text
         if next_text == 'extern':
@@ -118,14 +119,22 @@ def read_module(tokens: Peekable[Token]) -> ast.Module:
         elif next_text == 'import':
             imports.append(read_import(tokens))
         elif next_text == 'cimport':
-            cfunctions.update({f.name: f for f in read_cimport(tokens)})
+            types_functions = read_cimport(tokens)
+            ctypes.update({s.name: s for s in types_functions[0]})
+            cfunctions.update({f.name: f for f in types_functions[1]})
         elif next_text == 'union':
             types.append(read_union_definition(tokens))
         else:
             types.append(read_struct_definition(tokens))
 
-    if cfunctions:
-        imports.append(('c', ast.Module([], list(cfunctions.values()), [])))
+    if cfunctions or ctypes:
+        # HACK: libclang resolves va_list to __va_list_tag structure but the definition of the structure
+        # is defined internally by Clang and not returned as part of the AST. In order to fully process
+        # types and functions referring to __va_list_tag we need to provide a definition.
+        builtin_va_list = ast.get_builtin_va_list_struct()
+        ctypes[builtin_va_list.name] = builtin_va_list
+
+        imports.append(('c', ast.Module(list(ctypes.values()), list(cfunctions.values()), [])))
 
     return ast.Module(types, functions, imports)
 
@@ -188,7 +197,7 @@ def read_import(tokens: Peekable[Token]) -> Tuple[str, ast.Module]:
     return (module_name, parse(text, module_name))
 
 
-def read_cimport(tokens: Peekable[Token]) -> List[ast.Function]:
+def read_cimport(tokens: Peekable[Token]) -> Tuple[List[ast.TypeDefinition], List[ast.Function]]:
     # CImport = "cimport" StringLiteral ";";
     expect(tokens, 'cimport')
     header = expect(tokens, TokenType.string_literal).text
@@ -198,21 +207,33 @@ def read_cimport(tokens: Peekable[Token]) -> List[ast.Function]:
     header = header[1:-1]
 
     tu = clang_index.parse(find_header(header))
+    types: List[ast.TypeDefinition] = []
     functions: List[ast.Function] = []
     cursors = [tu.cursor]
     while cursors:
         c = cursors.pop()
         if (
+            (
+                c.kind is cindex.CursorKind.STRUCT_DECL  # type: ignore
+                and c.is_definition()
+            )
+            or (
+                c.kind is cindex.CursorKind.TYPE_REF  # type: ignore
+                and c.type.kind is cindex.TypeKind.RECORD  # type: ignore
+            )
+        ):
+            types.append(convert_c_record_definition(c))
+        elif (
             c.kind is cindex.CursorKind.FUNCTION_DECL  # type: ignore
             and not c.is_definition()
-            # TODO: This restriction is in place until we follow typedefs and import struct declarations.
-            # For now let's import few whitelisted functions.
-            and c.spelling in {'printf', 'abort', 'strlen'}
+            # HACK: We don't support block pointers, if we see the caret symbol we can suspect
+            # something fishy is going on, let's skip that particular function
+            and '^' not in c.type.spelling
         ):
             functions.append(convert_c_function_declaration(c))
         cursors.extend(c.get_children())
 
-    return functions
+    return (types, functions)
 
 
 def convert_c_function_declaration(declaration: cindex.Cursor) -> ast.Function:
@@ -229,12 +250,55 @@ def convert_c_function_declaration(declaration: cindex.Cursor) -> ast.Function:
     return ast.Function(declaration.spelling, parameters, return_type, [], None)
 
 
+def convert_c_record_definition(declaration: cindex.Cursor) -> Union[ast.Struct, ast.Union]:
+    name = declaration.spelling
+    this_type = 'struct'
+    if declaration.kind is cindex.CursorKind.TYPE_REF:  # type: ignore
+        if 'struct ' in name:
+            name = name.replace('struct ', '')
+        else:
+            assert 'union ' in name
+            name = name.replace('union ', '')
+            this_type = 'union'
+    else:
+        assert declaration.kind is cindex.CursorKind.STRUCT_DECL  # type: ignore
+    members = [(c.spelling, convert_c_type_reference(c.type)) for c in declaration.type.get_fields()]
+    if this_type == 'struct':
+        return ast.Struct(name, members)
+    else:
+        return ast.Union(name, members)
+
+
 def convert_c_type_reference(ref: cindex.Type) -> ast.TypeReference:
     pointer_level = 0
-    while ref.kind is cindex.TypeKind.POINTER:  # type: ignore
-        pointer_level += 1
-        ref = ref.get_pointee()
-    t: ast.TypeReference = ast.BaseTypeReference(c_types_mapping[ref.kind])
+    ref = ref.get_canonical()
+    while True:
+        if ref.kind is cindex.TypeKind.POINTER:  # type: ignore
+            pointer_level += 1
+            ref = ref.get_pointee().get_canonical()
+        elif ref.kind in [cindex.TypeKind.CONSTANTARRAY, cindex.TypeKind.INCOMPLETEARRAY]:  # type: ignore
+            pointer_level += 1
+            ref = ref.get_array_element_type().get_canonical()
+        else:
+            break
+    t: ast.TypeReference
+    if ref.kind is cindex.TypeKind.FUNCTIONPROTO:  # type: ignore
+        t = ast.FunctionTypeReference(
+            [convert_c_type_reference(t) for t in ref.argument_types()],
+            convert_c_type_reference(ref.get_result()),
+            ref.is_function_variadic(),
+        )
+    elif ref.kind is cindex.TypeKind.RECORD:  # type: ignore
+        t = ast.BaseTypeReference(ref.get_declaration().spelling)
+    elif ref.kind is cindex.TypeKind.ENUM:  # type: ignore
+        # TODO Make enums strongly typed
+        enum_type = ref.get_declaration().enum_type
+        t = convert_c_type_reference(enum_type)
+    else:
+        t = ast.BaseTypeReference(c_types_mapping[ref.kind])
+        # HACK: LLVM IR doesn't support void pointers
+        if t.name == 'void' and pointer_level > 0:
+            t = ast.BaseTypeReference('i8')
     for i in range(0, pointer_level):
         t = t.as_pointer()
     return t

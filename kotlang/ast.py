@@ -38,7 +38,14 @@ class Node:
 
 
 class TypeDefinition:
-    def get_type(self, namespace: Namespace) -> ts.Type:
+    name: str
+
+    def get_dummy_type(self) -> TypingUnion[ts.StructType, ts.UnionType]:
+        # Complex types can contain references to themselves so we split creating types into two phases.
+        # This is the first one. After the returned type is added to a namespace we call fill_type_members()
+        raise NotImplementedError()
+
+    def fill_type_members(self, namespace: Namespace, type_: ts.Type) -> None:
         raise NotImplementedError()
 
 
@@ -47,9 +54,14 @@ class Struct(TypeDefinition):
     name: str
     members: List[Tuple[str, TypeReference]]
 
-    def get_type(self, namespace: Namespace) -> ts.Type:
+    def get_dummy_type(self) -> ts.StructType:
+        return ts.StructType(self.name, [])
+
+    def fill_type_members(self, namespace: Namespace, type_: ts.Type) -> None:
+        # Note: This method mutates type_
+        assert isinstance(type_, ts.StructType)
         members = [(n, t.codegen(namespace)) for n, t in self.members]
-        return ts.StructType(self.name, members)
+        type_.members = members
 
 
 @dataclass
@@ -57,9 +69,14 @@ class Union(TypeDefinition):
     name: str
     members: List[Tuple[str, TypeReference]]
 
-    def get_type(self, namespace: Namespace) -> ts.Type:
+    def get_dummy_type(self) -> ts.UnionType:
+        return ts.UnionType(self.name, [])
+
+    def fill_type_members(self, namespace: Namespace, type_: ts.Type) -> None:
+        # Note: This method mutates type_
+        assert isinstance(type_, ts.UnionType)
         members = [(n, t.codegen(namespace)) for n, t in self.members]
-        return ts.UnionType(self.name, members)
+        type_.members = members
 
 
 @dataclass
@@ -83,9 +100,8 @@ class Function:
         return mangle([self.name] + type_values)
 
     def get_type(self, namespace: Namespace) -> ts.FunctionType:
-        return_type = self.return_type.codegen(namespace)
-        parameter_types = [p.type_.codegen(namespace) for p in self.parameters]
-        return ts.FunctionType(parameter_types, return_type, self.parameters.variadic)
+        ref = FunctionTypeReference([p.type_ for p in self.parameters], self.return_type, self.parameters.variadic)
+        return ref.codegen(namespace)
 
 
 def get_or_create_llvm_function(
@@ -169,8 +185,12 @@ class Module:
             import_namespaces.append(imported_namespace)
 
         module_namespace = Namespace(parents=[parent_namespace, *import_namespaces])
-        for td in self.types:
-            module_namespace.add_type(td.get_type(module_namespace))
+
+        definitions_types = [(td, td.get_dummy_type()) for td in self.types]
+        for _, t in definitions_types:
+            module_namespace.add_type(t)
+        for td, t in definitions_types:
+            td.fill_type_members(module_namespace, t)
 
         for f in self.functions:
             module_namespace.add_function(f)
@@ -872,7 +892,7 @@ class TypeReference:
     def as_pointer(self) -> PointerTypeReference:
         return PointerTypeReference(self)
 
-    def most_basic_type(self) -> BaseTypeReference:
+    def most_basic_type(self) -> TypeReference:
         raise NotImplementedError()
 
 
@@ -896,8 +916,23 @@ class ArrayTypeReference(TypeReference):
         assert isinstance(self.length, IntegerLiteral)
         return ts.ArrayType(self.base.codegen(namespace), int(self.length.text))
 
-    def most_basic_type(self) -> BaseTypeReference:
+    def most_basic_type(self) -> TypeReference:
         return self.base.most_basic_type()
+
+
+@dataclass
+class FunctionTypeReference(TypeReference):
+    parameter_types: List[TypeReference]
+    return_type: TypeReference
+    variadic: bool
+
+    def codegen(self, namespace: Namespace) -> ts.FunctionType:
+        return_type = self.return_type.codegen(namespace)
+        parameter_types = [t.codegen(namespace) for t in self.parameter_types]
+        return ts.FunctionType(parameter_types, return_type, self.variadic)
+
+    def most_basic_type(self) -> FunctionTypeReference:
+        return self
 
 
 @dataclass
@@ -907,7 +942,7 @@ class PointerTypeReference(TypeReference):
     def codegen(self, namespace: Namespace) -> ts.PointerType:
         return self.base.codegen(namespace).as_pointer()
 
-    def most_basic_type(self) -> BaseTypeReference:
+    def most_basic_type(self) -> TypeReference:
         return self.base.most_basic_type()
 
 
@@ -924,3 +959,18 @@ class ParameterList(Iterable[Parameter]):
 
     def __iter__(self) -> Iterator[Parameter]:
         return iter(self.parameters)
+
+
+def get_builtin_va_list_struct() -> Struct:
+    # NOTE: this is Clang-specific and x86 64-bit ABI-specific
+    # TODO: make this platform independent?
+    return Struct(
+        '__va_list_tag',
+        [
+            ('gp_offset', BaseTypeReference('i32')),
+            ('fp_offset', BaseTypeReference('i32')),
+            # Those pointer are void* originally, but LLVM IR doesn't support that, so...
+            ('overflow_arg_area', BaseTypeReference('i8').as_pointer()),
+            ('reg_save_area', BaseTypeReference('i8').as_pointer()),
+        ],
+    )

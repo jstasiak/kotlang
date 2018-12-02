@@ -153,6 +153,10 @@ class PointerType(Type):
 
         return super().adapt(builder, value, from_type)
 
+    def get_required_size_in_bytes(self) -> int:
+        # HACK: x86 64-bit-specific
+        return 8
+
 
 class DottableType(Type):
     def get_member_type(self, name: str) -> Type:
