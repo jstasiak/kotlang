@@ -14,7 +14,8 @@ if __name__ == '__main__':
             'dev': [
                 'flake8',
                 'flake8-import-order',
-                'mypy>=0.620',
+                # We need to avoid 0.650 because of https://github.com/python/mypy/pull/6097
+                'mypy>=0.620,mypy!=0.650',
                 'pytest',
                 'pytest-cov',
             ],
