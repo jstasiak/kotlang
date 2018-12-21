@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import platform
 import subprocess
-from typing import cast, Iterator, List, MutableMapping, Optional, Tuple, Union
+from typing import cast, Dict, Iterator, List, MutableMapping, Optional, Tuple, Union
 
 from kotlang import ast
 from kotlang.itertools import Peekable
@@ -110,6 +110,7 @@ def read_module(tokens: Peekable[Token]) -> ast.Module:
     imports = []
     cfunctions = {}
     ctypes = {}
+    cvariables = {}
     while tokens.peek().type is not TokenType.eof:
         next_text = expect_no_eat(tokens, 'def', 'extern', 'struct', 'import', 'cimport', 'union').text
         if next_text == 'extern':
@@ -119,24 +120,27 @@ def read_module(tokens: Peekable[Token]) -> ast.Module:
         elif next_text == 'import':
             imports.append(read_import(tokens))
         elif next_text == 'cimport':
-            types_functions = read_cimport(tokens)
-            ctypes.update({s.name: s for s in types_functions[0]})
-            cfunctions.update({f.name: f for f in types_functions[1]})
+            cimport_contents = read_cimport(tokens)
+            ctypes.update({s.name: s for s in cimport_contents[0]})
+            cfunctions.update({f.name: f for f in cimport_contents[1]})
+            cvariables.update({v.name: v for v in cimport_contents[2]})
         elif next_text == 'union':
             types.append(read_union_definition(tokens))
         else:
             types.append(read_struct_definition(tokens))
 
-    if cfunctions or ctypes:
+    if cfunctions or ctypes or cvariables:
         # HACK: libclang resolves va_list to __va_list_tag structure but the definition of the structure
         # is defined internally by Clang and not returned as part of the AST. In order to fully process
         # types and functions referring to __va_list_tag we need to provide a definition.
         builtin_va_list = ast.get_builtin_va_list_struct()
         ctypes[builtin_va_list.name] = builtin_va_list
+        imports.append((
+            'c',
+            ast.Module(list(ctypes.values()), list(cfunctions.values()), [], list(cvariables.values())),
+        ))
 
-        imports.append(('c', ast.Module(list(ctypes.values()), list(cfunctions.values()), [])))
-
-    return ast.Module(types, functions, imports)
+    return ast.Module(types, functions, imports, [])
 
 
 def read_struct_definition(tokens: Peekable[Token]) -> ast.Struct:
@@ -197,7 +201,11 @@ def read_import(tokens: Peekable[Token]) -> Tuple[str, ast.Module]:
     return (module_name, parse(text, module_name))
 
 
-def read_cimport(tokens: Peekable[Token]) -> Tuple[List[ast.TypeDefinition], List[ast.Function]]:
+def read_cimport(tokens: Peekable[Token]) -> Tuple[
+    List[ast.TypeDefinition],
+    List[ast.Function],
+    List[ast.VariableDeclaration],
+]:
     # CImport = "cimport" StringLiteral ";";
     expect(tokens, 'cimport')
     header = expect(tokens, TokenType.string_literal).text
@@ -206,13 +214,20 @@ def read_cimport(tokens: Peekable[Token]) -> Tuple[List[ast.TypeDefinition], Lis
     # Stripping first and last quotation mark characters because that's what string literals have
     header = header[1:-1]
 
-    tu = clang_index.parse(find_header(header))
+    tu = clang_index.parse(find_header(header), options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
     types: List[ast.TypeDefinition] = []
     functions: List[ast.Function] = []
+    variables: List[ast.VariableDeclaration] = []
     cursors = [tu.cursor]
+    defines: Dict[str, cindex.Token] = {}
     while cursors:
         c = cursors.pop()
-        if (
+        if c.kind == cindex.CursorKind.MACRO_DEFINITION:  # type: ignore
+            macro_tokens = list(c.get_tokens())[1:]
+            # We skip macros here, we're only interested in literal defines
+            if len(macro_tokens) == 1:
+                defines[c.spelling] = macro_tokens[0]
+        elif (
             (
                 c.kind is cindex.CursorKind.STRUCT_DECL  # type: ignore
                 and c.is_definition()
@@ -233,7 +248,12 @@ def read_cimport(tokens: Peekable[Token]) -> Tuple[List[ast.TypeDefinition], Lis
             functions.append(convert_c_function_declaration(c))
         cursors.extend(c.get_children())
 
-    return (types, functions)
+    for name, token in defines.items():
+        # TODO: import things other than ints here - recursively expand macros and import strings
+        if token.kind is cindex.TokenKind.LITERAL and token.spelling.isdigit():  # type: ignore
+            variables.append(ast.VariableDeclaration(name, ast.IntegerLiteral(token.spelling)))
+
+    return (types, functions, variables)
 
 
 def convert_c_function_declaration(declaration: cindex.Cursor) -> ast.Function:

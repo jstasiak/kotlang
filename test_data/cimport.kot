@@ -1,0 +1,7 @@
+cimport "unistd.h";
+import std;
+
+def main() -> i64 {
+	assert(STDIN_FILENO == 0, "STDIN_FILENO != 0");
+	return 0;
+}

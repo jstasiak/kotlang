@@ -149,6 +149,7 @@ class Module:
     types: List[TypeDefinition]
     functions: List[Function]
     imports: List[Tuple[str, Module]]
+    variables: List[VariableDeclaration]
 
     def codegen_top_level(self, name: str) -> ir.Module:
         builtin_namespace = Namespace()
@@ -161,7 +162,7 @@ class Module:
             builtin_namespace.add_type(ts.FloatType(bits))
 
         module = ir.Module(name=name)
-        self.codegen(module, builtin_namespace, MetaNamespace())
+        self.codegen(module, builtin_namespace, MetaNamespace(), name.split('/')[1].replace('.kot', ''))
         return module
 
     def codegen(
@@ -169,6 +170,7 @@ class Module:
         module: ir.Module,
         parent_namespace: Namespace,
         meta_namespace: MetaNamespace,
+        module_name: str,
     ) -> Namespace:
         import_namespaces: List[Namespace] = []
         for name, i in self.imports:
@@ -179,7 +181,10 @@ class Module:
             if meta_namespace.has(name) and name != 'c':
                 imported_namespace = meta_namespace.get(name)
             else:
-                imported_namespace = i.codegen(module, parent_namespace, meta_namespace)
+                # HACK c imports are "kinda" kot modules but not really
+                imported_module_name = name if name != 'c' else module_name + '_c'
+
+                imported_namespace = i.codegen(module, parent_namespace, meta_namespace, imported_module_name)
                 if name != 'c':
                     meta_namespace.set(name, imported_namespace)
             import_namespaces.append(imported_namespace)
@@ -194,6 +199,9 @@ class Module:
 
         for f in self.functions:
             module_namespace.add_function(f)
+
+        for variable_declaration in self.variables:
+            variable_declaration.codegen_module_level(module, module_namespace, module_name)
 
         nongeneric_functions = (f for f in self.functions if not f.is_generic)
         for f in nongeneric_functions:
@@ -441,10 +449,7 @@ class VariableDeclaration(Statement):
         self.type_ = type_
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
-        type_ = (
-            self.type_.codegen(namespace) if self.type_ is not None
-            else cast(Expression, self.expression).type(namespace)
-        )
+        type_ = self.variable_type(namespace)
         ir_type = type_.get_ir_type()
         if isinstance(type_, ts.FunctionType):
             # TODO: now our typesystem things we're dealing with functions while actually we're
@@ -458,6 +463,20 @@ class VariableDeclaration(Statement):
             adapted_value = type_.adapt(builder, value, self.expression.type(namespace))
             builder.store(adapted_value, memory)
 
+    def codegen_module_level(self, module: ir.Module, namespace: Namespace, module_name: str) -> None:
+        value = self.expression.get_constant_time_value() if self.expression else None
+        type_ = self.variable_type(namespace)
+        constant = ir.Constant(type_.get_ir_type(), value)
+        variable = ir.GlobalVariable(module, type_.get_ir_type(), mangle([module_name, self.name]))
+        variable.initializer = constant
+        namespace.add_value(Variable(self.name, type_, variable))
+
+    def variable_type(self, namespace: Namespace) -> ts.Type:
+        return (
+            self.type_.codegen(namespace) if self.type_ is not None
+            else cast(Expression, self.expression).type(namespace)
+        )
+
 
 class Expression(Statement):
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
@@ -468,6 +487,9 @@ class Expression(Statement):
 
     def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
         raise AssertionError(f'{type(self).__name__} cannot be used as a l-value nor can you grab its address')
+
+    def get_constant_time_value(self) -> Any:
+        raise NotImplementedError(f'{0} is not a compile-time constant')
 
 
 class NegativeExpression(Expression):
@@ -697,6 +719,9 @@ class IntegerLiteral(Expression):
 
     def type(self, namespace: Namespace) -> ts.Type:
         return namespace.get_type('i64')
+
+    def get_constant_time_value(self) -> Any:
+        return int(self.text)
 
 
 class FloatLiteral(Expression):
