@@ -469,6 +469,7 @@ class VariableDeclaration(Statement):
         constant = ir.Constant(type_.get_ir_type(), value)
         variable = ir.GlobalVariable(module, type_.get_ir_type(), mangle([module_name, self.name]))
         variable.initializer = constant
+        variable.global_constant = True
         namespace.add_value(Variable(self.name, type_, variable))
 
     def variable_type(self, namespace: Namespace) -> ts.Type:
