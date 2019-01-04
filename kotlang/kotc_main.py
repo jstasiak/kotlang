@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import contextlib
 import os
+from pathlib import Path
 import subprocess
 import sys
 import time
@@ -9,6 +10,7 @@ from typing import Any, cast, IO, Iterator, Optional
 import click
 from llvmlite import binding as llvm, ir
 
+from kotlang.context import Context
 from kotlang.lexer import lex
 from kotlang.parser import parse, ParseError
 
@@ -69,13 +71,13 @@ def main(
 ) -> None:
     assert optimization_level in range(0, 3 + 1)
     timer = timing if verbose >= 2 else dummy_timing
+    context = Context()
     with timer('Reading from storage'):
-        with open(source) as f:
-            text = f.read()
+        text = context.load_file_text(Path(source))
 
     with timer('Parsing'):
         try:
-            module = parse(text, '__main__')
+            module = parse(context, text, '__main__')
         except ParseError as e:
             print(e.context, file=sys.stderr)
             print(f'Cannot parse {os.path.basename(source)}: {e.message}', file=sys.stderr)

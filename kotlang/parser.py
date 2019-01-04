@@ -6,6 +6,7 @@ import subprocess
 from typing import cast, Dict, Iterator, List, MutableMapping, Optional, Tuple, Union
 
 from kotlang import ast
+from kotlang.context import Context
 from kotlang.itertools import Peekable
 from kotlang.lexer import lex, Token, TokenType
 
@@ -44,13 +45,13 @@ def find_header(header: str) -> str:
     assert False, f'Header {header} not found'
 
 
-def parse(text: str, name: str) -> ast.Module:
+def parse(context: Context, text: str, name: str) -> ast.Module:
     tokens = Peekable(lex(text))
     try:
-        module = read_module(tokens)
+        module = read_module(context, tokens)
     except UnexpectedToken as e:
-        context = context_with_pointer(text, e.token.line, e.token.column)
-        raise ParseError(context, str(e))
+        error_context = context_with_pointer(text, e.token.line, e.token.column)
+        raise ParseError(error_context, str(e))
     return module
 
 
@@ -103,7 +104,7 @@ def expect_no_eat(tokens: Peekable[Token], *what: ExpectedTokenT) -> Token:
     raise UnexpectedToken(next_token, list(what))
 
 
-def read_module(tokens: Peekable[Token]) -> ast.Module:
+def read_module(context: Context, tokens: Peekable[Token]) -> ast.Module:
     # Module = (FunctionDefinition | FunctionDeclaration | StructDefinition)*;
     functions = []
     types: List[ast.TypeDefinition] = []
@@ -118,7 +119,7 @@ def read_module(tokens: Peekable[Token]) -> ast.Module:
         elif next_text == 'def':
             functions.append(read_function_definition(tokens))
         elif next_text == 'import':
-            imports.append(read_import(tokens))
+            imports.append(read_import(context, tokens))
         elif next_text == 'cimport':
             cimport_contents = read_cimport(tokens)
             ctypes.update({s.name: s for s in cimport_contents[0]})
@@ -193,12 +194,12 @@ def read_function_definition(tokens: Peekable[Token]) -> ast.Function:
     return ast.Function(name, parameters, return_type, type_parameters, code_block)
 
 
-def read_import(tokens: Peekable[Token]) -> Tuple[str, ast.Module]:
+def read_import(context: Context, tokens: Peekable[Token]) -> Tuple[str, ast.Module]:
     expect(tokens, 'import')
     module_name = expect(tokens, TokenType.identifier).text
     expect(tokens, ';')
-    text = read_module_text(module_name)
-    return (module_name, parse(text, module_name))
+    text = context.load_module_text(module_name)
+    return (module_name, parse(context, text, module_name))
 
 
 def read_cimport(tokens: Peekable[Token]) -> Tuple[
@@ -342,11 +343,6 @@ c_types_mapping = {
     cindex.TypeKind.DOUBLE: 'f64',  # type: ignore
     cindex.TypeKind.LONGDOUBLE: 'f80',  # type: ignore
 }
-
-
-def read_module_text(name: str) -> str:
-    with open(os.path.join('modules', f'{name}.kot')) as f:
-        return f.read()
 
 
 def read_function_header(tokens: Peekable[Token]) -> Tuple[str, List[str], ast.ParameterList, ast.TypeReference]:
