@@ -13,8 +13,6 @@ matrix:
                 key_url: 'https://apt.llvm.org/llvm-snapshot.gpg.key'
             packages:
               - libclang-7-dev
-before_install:
-  - sudo apt update; sudo apt install libsdl2-dev
 install: pip install '.[dev]'
 script:
     - make ci
