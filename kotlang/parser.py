@@ -619,7 +619,7 @@ def read_primary_expression(tokens: Peekable[Token]) -> ast.Expression:  # noqa:
     elif next_token.type is TokenType.float_literal:
         to_return = ast.FloatLiteral(next_token.text)
     elif next_token.type is TokenType.bool_literal:
-        to_return = ast.BoolLiteral(next_token.text)
+        to_return = ast.BoolLiteral(next_token.text == 'true')
     elif next_token.text == '&':
         subexpression = read_primary_expression(tokens)
         # TODO: make this nicer

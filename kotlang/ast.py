@@ -738,9 +738,8 @@ class FloatLiteral(Expression):
 
 
 class BoolLiteral(Expression):
-    def __init__(self, text: str) -> None:
-        assert text in {'false', 'true'}
-        self.value = text == 'true'
+    def __init__(self, value: bool) -> None:
+        self.value = value
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         return namespace.get_type('bool').get_ir_type()(self.value)
