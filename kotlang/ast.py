@@ -37,6 +37,7 @@ class Node:
     pass
 
 
+@dataclass
 class TypeDefinition:
     name: str
 
@@ -264,9 +265,9 @@ class Namespace:
             raise KeyError(name)
 
 
+@dataclass
 class MetaNamespace:
-    def __init__(self) -> None:
-        self._namespaces: Dict[str, Namespace] = {}
+    _namespaces: Dict[str, Namespace] = field(default_factory=dict)
 
     def set(self, name: str, namespace: Namespace) -> None:
         assert name not in self._namespaces
@@ -284,18 +285,18 @@ class Statement:
         raise NotImplementedError(f'Code generation not implemented for {type(self)}')
 
 
+@dataclass
 class CompoundStatement(Statement):
-    def __init__(self, statements: List[Statement]) -> None:
-        self.statements = statements
+    statements: List[Statement]
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
         for s in self.statements:
             s.codegen(module, builder, namespace)
 
 
+@dataclass
 class CodeBlock(Statement):
-    def __init__(self, statements: List[Statement]) -> None:
-        self.statements = statements
+    statements: List[Statement]
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
         block_namespace = Namespace(parents=[namespace])
@@ -303,16 +304,11 @@ class CodeBlock(Statement):
             s.codegen(module, builder, block_namespace)
 
 
+@dataclass
 class IfStatement(Statement):
-    def __init__(
-        self,
-        expression: Expression,
-        first_statement: Statement,
-        second_statement: Optional[Statement] = None,
-    ) -> None:
-        self.expression = expression
-        self.first_statement = first_statement
-        self.second_statement = second_statement
+    expression: Expression
+    first_statement: Statement
+    second_statement: Optional[Statement] = None
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
         expression_value = self.expression.codegen(module, builder, namespace)
@@ -331,16 +327,16 @@ def get_intrinsic(module: ir.Module, name: str) -> ir.Function:
     return ir.Function(module, fntype, name=name)
 
 
+@dataclass
 class PatternMatchArm:
-    def __init__(self, pattern: Expression, body: Expression) -> None:
-        self.pattern = pattern
-        self.body = body
+    pattern: Expression
+    body: Expression
 
 
+@dataclass
 class PatternMatch(Statement):
-    def __init__(self, match_value: Expression, arms: List[PatternMatchArm]) -> None:
-        self.match_value = match_value
-        self.arms = arms
+    match_value: Expression
+    arms: List[PatternMatchArm]
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
         exit_block = builder.append_basic_block('match.exit')
@@ -367,31 +363,21 @@ class PatternMatch(Statement):
         builder.position_at_end(exit_block)
 
 
+@dataclass
 class WhileLoop(Statement):
-    def __init__(
-        self,
-        condition: Expression,
-        body: Statement,
-    ) -> None:
-        self.condition = condition
-        self.body = body
+    condition: Expression
+    body: Statement
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
         loop_helper(module, builder, namespace, self.condition, self.body)
 
 
+@dataclass
 class ForLoop(Statement):
-    def __init__(
-        self,
-        entry: Statement,
-        condition: Expression,
-        step: Statement,
-        body: Statement,
-    ) -> None:
-        self.entry = entry
-        self.condition = condition
-        self.step = step
-        self.body = body
+    entry: Statement
+    condition: Expression
+    step: Statement
+    body: Statement
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
         loop_namespace = Namespace(parents=[namespace])
@@ -425,9 +411,9 @@ def loop_helper(
     builder.position_at_end(exit_block)
 
 
+@dataclass
 class ReturnStatement(Statement):
-    def __init__(self, expression: Optional[Expression] = None) -> None:
-        self.expression = expression
+    expression: Optional[Expression] = None
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
         if self.expression is not None:
@@ -436,17 +422,14 @@ class ReturnStatement(Statement):
             builder.ret_void()
 
 
+@dataclass
 class VariableDeclaration(Statement):
-    def __init__(
-        self,
-        name: str,
-        expression: Optional[Expression],
-        type_: Optional[TypeReference] = None,
-    ) -> None:
-        assert expression is not None or type_ is not None, (expression, type_)
-        self.name = name
-        self.expression = expression
-        self.type_ = type_
+    name: str
+    expression: Optional[Expression]
+    type_: Optional[TypeReference] = None
+
+    def __post_init__(self) -> None:
+        assert self.expression is not None or self.type_ is not None, (self.expression, self.type_)
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> None:
         type_ = self.variable_type(namespace)
@@ -493,9 +476,9 @@ class Expression(Statement):
         raise NotImplementedError(f'{0} is not a compile-time constant')
 
 
+@dataclass
 class NegativeExpression(Expression):
-    def __init__(self, expression: Expression) -> None:
-        self.expression = expression
+    expression: Expression
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         value = self.expression.codegen(module, builder, namespace, name)
@@ -506,9 +489,9 @@ class NegativeExpression(Expression):
         return self.expression.type(namespace)
 
 
+@dataclass
 class BoolNegationExpression(Expression):
-    def __init__(self, expression: Expression) -> None:
-        self.expression = expression
+    expression: Expression
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         assert self.expression.type(namespace).name == 'bool', self.expression
@@ -520,18 +503,12 @@ class BoolNegationExpression(Expression):
         return self.expression.type(namespace)
 
 
+@dataclass
 class BinaryExpression(Expression):
-    def __init__(
-        self,
-        left_operand: Expression,
-        operator: str,
-        right_operand: Expression,
-        name: str = '',
-    ) -> None:
-        self.left_operand = left_operand
-        self.operator = operator
-        self.right_operand = right_operand
-        self.name = name
+    left_operand: Expression
+    operator: str
+    right_operand: Expression
+    name: str = ''
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         left_value = self.left_operand.codegen(module, builder, namespace)
@@ -590,14 +567,11 @@ class BinaryExpression(Expression):
             return self.left_operand.type(namespace)
         assert False, (self.operator, self.left_operand, self.right_operand)
 
-    def __repr__(self) -> str:
-        return f'type(self).__name__({repr(self.left_operand)}, {repr(self.operator)}, {repr(self.right_operand)})'
 
-
+@dataclass
 class FunctionCall(Expression):
-    def __init__(self, name: str, parameters: List[Expression]) -> None:
-        self.name = name
-        self.parameters = parameters
+    name: str
+    parameters: List[Expression]
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         function: TypingUnion[Function, Variable]
@@ -672,10 +646,10 @@ def namespace_for_specialized_function(
     return new_namespace
 
 
+@dataclass
 class StructInstantiation(Expression):
-    def __init__(self, name: str, parameters: List[Expression]) -> None:
-        self.name = name
-        self.parameters = parameters
+    name: str
+    parameters: List[Expression]
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         struct = namespace.get_type(self.name)
@@ -695,9 +669,12 @@ class StructInstantiation(Expression):
         return namespace.get_type(self.name)
 
 
+@dataclass
 class StringLiteral(Expression):
-    def __init__(self, text: str) -> None:
-        self.text = evaluate_escape_sequences(text)
+    text: str
+
+    def __post_init__(self) -> None:
+        self.text = evaluate_escape_sequences(self.text)
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         return string_constant(module, builder, self.text[1:-1], namespace)
@@ -710,9 +687,9 @@ def evaluate_escape_sequences(text: str) -> str:
     return text.replace(r'\n', '\n')
 
 
+@dataclass
 class IntegerLiteral(Expression):
-    def __init__(self, text: str) -> None:
-        self.text = text
+    text: str
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         value = int(self.text)
@@ -725,9 +702,9 @@ class IntegerLiteral(Expression):
         return int(self.text)
 
 
+@dataclass
 class FloatLiteral(Expression):
-    def __init__(self, text: str) -> None:
-        self.text = text
+    text: str
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         value = float(self.text)
@@ -737,9 +714,9 @@ class FloatLiteral(Expression):
         return namespace.get_type('f64')
 
 
+@dataclass
 class BoolLiteral(Expression):
-    def __init__(self, value: bool) -> None:
-        self.value = value
+    value: bool
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         return namespace.get_type('bool').get_ir_type()(self.value)
@@ -753,9 +730,9 @@ class MemoryReference(Expression):
         raise NotImplementedError()
 
 
+@dataclass
 class VariableReference(MemoryReference):
-    def __init__(self, name: str) -> None:
-        self.name = name
+    name: str
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         type_ = self.type(namespace)
@@ -788,9 +765,9 @@ class VariableReference(MemoryReference):
             return function.get_type(namespace)
 
 
+@dataclass
 class AddressOf(MemoryReference):
-    def __init__(self, variable: VariableReference) -> None:
-        self.variable = variable
+    variable: VariableReference
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         return self.variable.get_pointer(module, builder, namespace)
@@ -799,9 +776,9 @@ class AddressOf(MemoryReference):
         return namespace.get_value(self.variable.name).type_.as_pointer()
 
 
+@dataclass
 class ValueAt(MemoryReference):
-    def __init__(self, variable: VariableReference) -> None:
-        self.variable = variable
+    variable: VariableReference
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         pointer = self.variable.get_pointer(module, builder, namespace)
@@ -816,10 +793,10 @@ class ValueAt(MemoryReference):
         return self.variable.codegen(module, builder, namespace)
 
 
+@dataclass
 class Assignment(Expression):
-    def __init__(self, target: Expression, expression: Expression) -> None:
-        self.target = target
-        self.expression = expression
+    target: Expression
+    expression: Expression
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         pointer = self.target.get_pointer(module, builder, namespace)
@@ -836,10 +813,12 @@ class Assignment(Expression):
         return self.expression.type(namespace)
 
 
+@dataclass
 class ArrayLiteral(Expression):
-    def __init__(self, initializers: List[Expression]) -> None:
-        assert len(initializers) > 0
-        self.initializers = initializers
+    initializers: List[Expression]
+
+    def __post_init__(self) -> None:
+        assert len(self.initializers) > 0
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         type_ = self.type(namespace)
@@ -858,10 +837,10 @@ class ArrayLiteral(Expression):
         return ts.ArrayType(element_type, len(self.initializers))
 
 
+@dataclass
 class DotAccess(MemoryReference):
-    def __init__(self, left_side: MemoryReference, member: str) -> None:
-        self.left_side = left_side
-        self.member = member
+    left_side: MemoryReference
+    member: str
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         pointer = self.get_pointer(module, builder, namespace)
@@ -879,10 +858,10 @@ class DotAccess(MemoryReference):
         return left_type.get_member_type(self.member)
 
 
+@dataclass
 class IndexAccess(MemoryReference):
-    def __init__(self, pointer: MemoryReference, index: Expression) -> None:
-        self.pointer = pointer
-        self.index = index
+    pointer: MemoryReference
+    index: Expression
 
     def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
         pointer = self.get_pointer(module, builder, namespace)
