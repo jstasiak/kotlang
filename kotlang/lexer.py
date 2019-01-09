@@ -2,6 +2,8 @@ import dataclasses
 import enum
 from typing import Iterator, Tuple
 
+from kotlang.span import dummy_span, Span
+
 
 class TokenType(enum.Enum):
     integer_literal = enum.auto()
@@ -19,8 +21,7 @@ class TokenType(enum.Enum):
 class Token:
     type: TokenType
     text: str
-    line: int = 0
-    column: int = 0
+    span: Span = dummy_span
 
 
 IDENTIFIER_START = 'abcdefghijklmnopqrstuvwxyz_'
@@ -40,7 +41,7 @@ def provide_line_and_column_numbers(tokens: Iterator[Token]) -> Iterator[Token]:
     column = 0
 
     for t in tokens:
-        t = dataclasses.replace(t, line=line, column=column)
+        t = dataclasses.replace(t, span=Span(line, column))
         yield t
         line += t.text.count('\n')
         has_newline = '\n' in t.text

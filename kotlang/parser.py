@@ -50,7 +50,7 @@ def parse(context: Context, text: str, name: str) -> ast.Module:
     try:
         module = read_module(context, tokens)
     except UnexpectedToken as e:
-        error_context = context_with_pointer(text, e.token.line, e.token.column)
+        error_context = context_with_pointer(text, e.token.span.line, e.token.span.column)
         raise ParseError(error_context, str(e))
     return module
 
