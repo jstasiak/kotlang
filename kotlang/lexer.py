@@ -32,10 +32,10 @@ MAX_OP_WIDTH = max(len(op) for op in OPS)
 
 
 def lex(text: str) -> Iterator[Token]:
-    return only_important_tokens(provide_line_and_column_numbers(text, _lex(text)))
+    return only_important_tokens(provide_line_and_column_numbers(_lex(text)))
 
 
-def provide_line_and_column_numbers(text: str, tokens: Iterator[Token]) -> Iterator[Token]:
+def provide_line_and_column_numbers(tokens: Iterator[Token]) -> Iterator[Token]:
     line = 0
     column = 0
 
