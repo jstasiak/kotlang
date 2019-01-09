@@ -52,7 +52,6 @@ class TypeDefinition:
 
 @dataclass
 class Struct(TypeDefinition):
-    name: str
     members: List[Tuple[str, TypeReference]]
 
     def get_dummy_type(self) -> ts.StructType:
@@ -67,7 +66,6 @@ class Struct(TypeDefinition):
 
 @dataclass
 class Union(TypeDefinition):
-    name: str
     members: List[Tuple[str, TypeReference]]
 
     def get_dummy_type(self) -> ts.UnionType:
