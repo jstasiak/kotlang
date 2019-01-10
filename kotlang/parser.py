@@ -6,7 +6,7 @@ import subprocess
 from typing import cast, Dict, Iterator, List, MutableMapping, Optional, Tuple, Union
 
 from kotlang import ast
-from kotlang.context import Context
+from kotlang.context import Context, ModuleFile
 from kotlang.itertools import Peekable
 from kotlang.lexer import lex, Token, TokenType
 
@@ -45,8 +45,8 @@ def find_header(header: str) -> str:
     assert False, f'Header {header} not found'
 
 
-def parse(context: Context, text: str, name: str) -> ast.Module:
-    tokens = Peekable(lex(text))
+def parse(context: Context, text: str, name: str, filename: str) -> ast.Module:
+    tokens = Peekable(lex(text, filename))
     try:
         module = read_module(context, tokens)
     except UnexpectedToken as e:
@@ -198,8 +198,8 @@ def read_import(context: Context, tokens: Peekable[Token]) -> Tuple[str, ast.Mod
     expect(tokens, 'import')
     module_name = expect(tokens, TokenType.identifier).text
     expect(tokens, ';')
-    text = context.load_module_text(module_name)
-    return (module_name, parse(context, text, module_name))
+    module_file = context.load_module_text(module_name)
+    return (module_name, parse(context, module_file.text, module_name, module_file.filename))
 
 
 def read_cimport(tokens: Peekable[Token]) -> Tuple[

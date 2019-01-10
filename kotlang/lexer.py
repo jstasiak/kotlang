@@ -32,16 +32,16 @@ OPS = set(r'! , . ... : ; -> * / \ + - < <= > >= ( ) [ ] { } = == !='.split())
 MAX_OP_WIDTH = max(len(op) for op in OPS)
 
 
-def lex(text: str) -> Iterator[Token]:
-    return only_important_tokens(provide_line_and_column_numbers(_lex(text)))
+def lex(text: str, filename: str) -> Iterator[Token]:
+    return only_important_tokens(provide_spans(_lex(text), filename))
 
 
-def provide_line_and_column_numbers(tokens: Iterator[Token]) -> Iterator[Token]:
+def provide_spans(tokens: Iterator[Token], filename: str) -> Iterator[Token]:
     line = 0
     column = 0
 
     for t in tokens:
-        t = dataclasses.replace(t, span=Span(line, column))
+        t = dataclasses.replace(t, span=Span(line, column, filename))
         yield t
         line += t.text.count('\n')
         has_newline = '\n' in t.text

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 class Span:
     line: int
     column: int
+    filename: str
 
 
-dummy_span = Span(0, 0)
+dummy_span = Span(0, 0, '')
