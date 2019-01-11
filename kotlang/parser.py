@@ -45,7 +45,7 @@ def find_header(header: str) -> str:
     assert False, f'Header {header} not found'
 
 
-def parse(context: Context, text: str, name: str, filename: str) -> ast.Module:
+def parse(context: Context, text: str, filename: str) -> ast.Module:
     tokens = Peekable(lex(text, filename))
     try:
         module = read_module(context, tokens)
@@ -199,7 +199,7 @@ def read_import(context: Context, tokens: Peekable[Token]) -> Tuple[str, ast.Mod
     module_name = expect(tokens, TokenType.identifier).text
     expect(tokens, ';')
     module_file = context.load_module_text(module_name)
-    return (module_name, parse(context, module_file.text, module_name, module_file.filename))
+    return (module_name, parse(context, module_file.text, module_file.filename))
 
 
 def read_cimport(tokens: Peekable[Token]) -> Tuple[

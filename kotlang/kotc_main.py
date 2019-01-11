@@ -77,7 +77,7 @@ def main(
 
     with timer('Parsing'):
         try:
-            module = parse(context, text, '__main__', source)
+            module = parse(context, text, source)
         except ParseError as e:
             print(e.context, file=sys.stderr)
             print(f'Cannot parse {os.path.basename(source)}: {e.message}', file=sys.stderr)
