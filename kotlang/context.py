@@ -59,7 +59,8 @@ class Context:
                 modules_to_parse.extend(('by_name', m) for m in modules_needed_by_this_module - modules.keys())
                 includes_to_parse.update(module.includes)
 
-        includes = {i: read_header(i) for i in includes_to_parse}
+        with self.timed('Reading C headers'):
+            includes = {i: read_header(i) for i in includes_to_parse}
         codegen_order = topological_sort(dependency_map)
         namespaces: Dict[str, Namespace] = {}
 
