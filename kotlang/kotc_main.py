@@ -12,7 +12,6 @@ from llvmlite import binding as llvm, ir
 
 from kotlang.context import Context
 from kotlang.lexer import lex
-from kotlang.parser import parse, ParseError
 
 
 class Emitter:
@@ -71,21 +70,9 @@ def main(
 ) -> None:
     assert optimization_level in range(0, 3 + 1)
     timer = timing if verbose >= 2 else dummy_timing
-    context = Context()
-    with timer('Reading from storage'):
-        text = context.load_file_text(Path(source))
-
-    with timer('Parsing'):
-        try:
-            module = parse(context, text, source)
-        except ParseError as e:
-            print(e.context, file=sys.stderr)
-            print(f'Cannot parse {os.path.basename(source)}: {e.message}', file=sys.stderr)
-            sys.exit(1)
-    with timer('Codegen'):
-        llvm_module = module.codegen_top_level(source)
-
+    context = Context(timer)
     base_name = os.path.splitext(source)[0]
+    llvm_module = context.compile(source)
 
     with timer('Initializing LLVM'):
         emitter = Emitter(optimization_level)

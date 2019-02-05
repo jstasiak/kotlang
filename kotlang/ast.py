@@ -147,48 +147,17 @@ def get_or_create_llvm_function(
 class Module:
     types: List[TypeDefinition]
     functions: List[Function]
-    imports: List[Tuple[str, Module]]
+    imports: List[str]
+    includes: List[str]
     variables: List[VariableDeclaration]
-
-    def codegen_top_level(self, name: str) -> ir.Module:
-        builtin_namespace = Namespace()
-        builtin_namespace.add_type(ts.VoidType())
-        builtin_namespace.add_type(ts.BoolType())
-        for signed in {True, False}:
-            for bits in {8, 16, 32, 64}:
-                builtin_namespace.add_type(ts.IntType(bits, signed=signed))
-        for bits in [32, 64, 80]:
-            builtin_namespace.add_type(ts.FloatType(bits))
-
-        module = ir.Module(name=name)
-        self.codegen(module, builtin_namespace, MetaNamespace(), name.split('/')[1].replace('.kot', ''))
-        return module
 
     def codegen(
         self,
         module: ir.Module,
-        parent_namespace: Namespace,
-        meta_namespace: MetaNamespace,
+        parent_namespaces: List[Namespace],
         module_name: str,
     ) -> Namespace:
-        import_namespaces: List[Namespace] = []
-        for name, i in self.imports:
-            # FIXME we currently need to special-case the c module where we put bits
-            # imported from C headers. If we remove this special handling one set of headers imported by
-            # one module would overshadow another set of headers in another module processed later.
-            # This whole MetaNamespace hack needs to go most likely.
-            if meta_namespace.has(name) and name != 'c':
-                imported_namespace = meta_namespace.get(name)
-            else:
-                # HACK c imports are "kinda" kot modules but not really
-                imported_module_name = name if name != 'c' else module_name + '_c'
-
-                imported_namespace = i.codegen(module, parent_namespace, meta_namespace, imported_module_name)
-                if name != 'c':
-                    meta_namespace.set(name, imported_namespace)
-            import_namespaces.append(imported_namespace)
-
-        module_namespace = Namespace(parents=[parent_namespace, *import_namespaces])
+        module_namespace = Namespace(parents=parent_namespaces)
 
         definitions_types = [(td, td.get_dummy_type()) for td in self.types]
         for _, t in definitions_types:
@@ -261,21 +230,6 @@ class Namespace:
                 except KeyError:
                     pass
             raise KeyError(name)
-
-
-@dataclass
-class MetaNamespace:
-    _namespaces: Dict[str, Namespace] = field(default_factory=dict)
-
-    def set(self, name: str, namespace: Namespace) -> None:
-        assert name not in self._namespaces
-        self._namespaces[name] = namespace
-
-    def get(self, name: str) -> Namespace:
-        return self._namespaces[name]
-
-    def has(self, name: str) -> bool:
-        return name in self._namespaces
 
 
 class Statement:
