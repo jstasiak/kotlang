@@ -272,13 +272,6 @@ class IfStatement(Statement):
                     self.second_statement.codegen(module, builder, namespace)
 
 
-def get_intrinsic(module: ir.Module, name: str) -> ir.Function:
-    if name in module.globals:
-        return module.globals[name]
-    fntype = ir.FunctionType(ir.VoidType(), ())
-    return ir.Function(module, fntype, name=name)
-
-
 @dataclass
 class PatternMatchArm:
     pattern: Expression
