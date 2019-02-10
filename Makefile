@@ -1,5 +1,5 @@
 .PHONY: lint
-lint: flake8 mypy
+lint: flake8 mypy check-format
 
 .PHONY: flake8
 flake8:
@@ -20,3 +20,13 @@ test:
 
 .PHONY: ci
 ci: test lint
+
+
+.PHONY: format
+format:
+	black .
+
+
+.PHONY: check-format
+check-format:
+	black --check .

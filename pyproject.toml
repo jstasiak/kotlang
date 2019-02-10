@@ -1,0 +1,5 @@
+[tool.black]
+line-length = 110
+py36 = true
+skip_string_normalization = true
+exclude = 'clang/'
