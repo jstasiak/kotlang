@@ -4,9 +4,20 @@ from dataclasses import dataclass, field
 from enum import Enum
 from itertools import zip_longest
 from typing import (
-    Any, cast, Collection, Dict, Iterable, Iterator, List,
-    Mapping, MutableMapping, Optional,
-    Tuple, Type as TypingType, TypeVar, Union as TypingUnion,
+    Any,
+    cast,
+    Collection,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Tuple,
+    Type as TypingType,
+    TypeVar,
+    Union as TypingUnion,
 )
 
 from llvmlite import ir
@@ -99,15 +110,13 @@ class Function:
         return mangle([self.name] + type_values)
 
     def get_type(self, namespace: Namespace) -> ts.FunctionType:
-        ref = FunctionTypeReference([p.type_ for p in self.parameters], self.return_type, self.parameters.variadic)
+        ref = FunctionTypeReference(
+            [p.type_ for p in self.parameters], self.return_type, self.parameters.variadic
+        )
         return ref.codegen(namespace)
 
 
-def get_or_create_llvm_function(
-    module: ir.Module,
-    namespace: Namespace,
-    function: Function,
-) -> ir.Function:
+def get_or_create_llvm_function(module: ir.Module, namespace: Namespace, function: Function) -> ir.Function:
     symbol_name = function.symbol_name(namespace)
     try:
         llvm_function = module.globals[symbol_name]
@@ -130,7 +139,9 @@ def get_or_create_llvm_function(
                 (parameter, parameter_type) = pt
                 memory = builder.alloca(arg.type, name=parameter.name)
                 builder.store(arg, memory)
-                function_namespace.add_value(Variable(parameter.name or f'param{i + 1}', parameter_type, memory))
+                function_namespace.add_value(
+                    Variable(parameter.name or f'param{i + 1}', parameter_type, memory)
+                )
 
             function.code_block.codegen(module, builder, function_namespace)
             if ft.return_type == ts.void:
@@ -151,12 +162,7 @@ class Module:
     includes: List[str]
     variables: List[VariableDeclaration]
 
-    def codegen(
-        self,
-        module: ir.Module,
-        parent_namespaces: List[Namespace],
-        module_name: str,
-    ) -> Namespace:
+    def codegen(self, module: ir.Module, parent_namespaces: List[Namespace], module_name: str) -> Namespace:
         module_namespace = Namespace(parents=parent_namespaces)
 
         definitions_types = [(td, td.get_dummy_type()) for td in self.types]
@@ -332,11 +338,7 @@ class ForLoop(Statement):
 
 
 def loop_helper(
-    module: ir.Module,
-    builder: ir.IRBuilder,
-    namespace: Namespace,
-    condition: Expression,
-    body: Statement,
+    module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, condition: Expression, body: Statement
 ) -> None:
     assert isinstance(condition.type(namespace), ts.BoolType)
     condition_block = builder.append_basic_block('loop.condition')
@@ -402,20 +404,25 @@ class VariableDeclaration(Statement):
 
     def variable_type(self, namespace: Namespace) -> ts.Type:
         return (
-            self.type_.codegen(namespace) if self.type_ is not None
+            self.type_.codegen(namespace)
+            if self.type_ is not None
             else cast(Expression, self.expression).type(namespace)
         )
 
 
 class Expression(Statement):
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         raise NotImplementedError()
 
     def type(self, namespace: Namespace) -> ts.Type:
         raise NotImplementedError(f'type() not implemented for {type(self)}')
 
     def get_pointer(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace) -> ir.Value:
-        raise AssertionError(f'{type(self).__name__} cannot be used as a l-value nor can you grab its address')
+        raise AssertionError(
+            f'{type(self).__name__} cannot be used as a l-value nor can you grab its address'
+        )
 
     def get_constant_time_value(self) -> Any:
         raise NotImplementedError(f'{0} is not a compile-time constant')
@@ -425,7 +432,9 @@ class Expression(Statement):
 class NegativeExpression(Expression):
     expression: Expression
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         value = self.expression.codegen(module, builder, namespace, name)
         value.constant = -value.constant
         return value
@@ -438,7 +447,9 @@ class NegativeExpression(Expression):
 class BoolNegationExpression(Expression):
     expression: Expression
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         assert self.expression.type(namespace).name == 'bool', self.expression
 
         value_to_negate = self.expression.codegen(module, builder, namespace)
@@ -455,7 +466,9 @@ class BinaryExpression(Expression):
     right_operand: Expression
     name: str = ''
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         left_value = self.left_operand.codegen(module, builder, namespace)
         right_value = self.right_operand.codegen(module, builder, namespace)
         # TODO stop hardcoding those
@@ -503,7 +516,9 @@ class BinaryExpression(Expression):
             else:
                 right_value = builder.sext(right_value, extend_to)
             return builder.icmp_signed(self.operator, left_value, right_value, name=self.name)
-        raise AssertionError(f'Invalid operand, operator, operand triple: ({left_value.type}, {right_value.type}, {self.operator})')  # noqa
+        raise AssertionError(
+            f'Invalid operand, operator, operand triple: ({left_value.type}, {right_value.type}, {self.operator})'
+        )  # noqa
 
     def type(self, namespace: Namespace) -> ts.Type:
         if self.operator in {'<', '>', '<=', '>=', '==', '!='}:
@@ -518,7 +533,9 @@ class FunctionCall(Expression):
     name: str
     parameters: List[Expression]
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         function: TypingUnion[Function, Variable]
         parameter_names: List[str]
         try:
@@ -543,9 +560,11 @@ class FunctionCall(Expression):
             llvm_function = get_or_create_llvm_function(module, namespace, function)
 
         # TODO: handle not enough parameters here
-        assert len(self.parameters) == len(parameter_types) or \
-            ft.variadic and len(self.parameters) > len(parameter_types), \
-            (ft, self.parameters)
+        assert (
+            len(self.parameters) == len(parameter_types)
+            or ft.variadic
+            and len(self.parameters) > len(parameter_types)
+        ), (ft, self.parameters)
         parameter_values = [
             p.codegen(module, builder, namespace, f'{self.name}.{n}')
             for (p, n) in zip_longest(self.parameters, parameter_names, fillvalue='arg')
@@ -555,7 +574,7 @@ class FunctionCall(Expression):
 
         provided_parameter_types = [p.type(namespace) for p in self.parameters]
         for i, (value, from_type, to_type) in enumerate(
-            zip(parameter_values, provided_parameter_types, parameter_types),
+            zip(parameter_values, provided_parameter_types, parameter_types)
         ):
             parameter_values[i] = to_type.adapt(builder, value, from_type)
 
@@ -572,9 +591,7 @@ def whatever<T>(int a, T b) -> void ...
 
 
 def namespace_for_specialized_function(
-    namespace: Namespace,
-    function: Function,
-    arguments: Collection[Expression],
+    namespace: Namespace, function: Function, arguments: Collection[Expression]
 ) -> Namespace:
     mapping: Dict[str, ts.Type] = {}
     for parameter, expression in zip(function.parameters, arguments):
@@ -596,7 +613,9 @@ class StructInstantiation(Expression):
     name: str
     parameters: List[Expression]
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         struct = namespace.get_type(self.name)
         assert isinstance(struct, ts.StructType)
         assert len(self.parameters) == len(struct.members)
@@ -621,7 +640,9 @@ class StringLiteral(Expression):
     def __post_init__(self) -> None:
         self.text = evaluate_escape_sequences(self.text)
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         return string_constant(module, builder, self.text[1:-1], namespace)
 
     def type(self, namespace: Namespace) -> ts.Type:
@@ -636,7 +657,9 @@ def evaluate_escape_sequences(text: str) -> str:
 class IntegerLiteral(Expression):
     text: str
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         value = int(self.text)
         return namespace.get_type('i64').get_ir_type()(value)
 
@@ -651,7 +674,9 @@ class IntegerLiteral(Expression):
 class FloatLiteral(Expression):
     text: str
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         value = float(self.text)
         return namespace.get_type('f64').get_ir_type()(value)
 
@@ -663,7 +688,9 @@ class FloatLiteral(Expression):
 class BoolLiteral(Expression):
     value: bool
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         return namespace.get_type('bool').get_ir_type()(self.value)
 
     def type(self, namespace: Namespace) -> ts.Type:
@@ -679,7 +706,9 @@ class MemoryReference(Expression):
 class VariableReference(MemoryReference):
     name: str
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         type_ = self.type(namespace)
         pointer = self.get_pointer(module, builder, namespace)
         # The first part of this condition makes sure we keep referring to functions by their pointers.
@@ -714,7 +743,9 @@ class VariableReference(MemoryReference):
 class AddressOf(MemoryReference):
     variable: VariableReference
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         return self.variable.get_pointer(module, builder, namespace)
 
     def type(self, namespace: Namespace) -> ts.Type:
@@ -725,7 +756,9 @@ class AddressOf(MemoryReference):
 class ValueAt(MemoryReference):
     variable: VariableReference
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         pointer = self.variable.get_pointer(module, builder, namespace)
         pointer = builder.load(pointer)  # self.variable.codegen
         pointer = builder.load(pointer)
@@ -743,7 +776,9 @@ class Assignment(Expression):
     target: Expression
     expression: Expression
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         pointer = self.target.get_pointer(module, builder, namespace)
         value = self.expression.codegen(module, builder, namespace)
         destination_type = self.target.type(namespace)
@@ -765,13 +800,15 @@ class ArrayLiteral(Expression):
     def __post_init__(self) -> None:
         assert len(self.initializers) > 0
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         type_ = self.type(namespace)
         memory = builder.alloca(type_.get_ir_type(), name=name)
         i64 = namespace.get_type('i64').get_ir_type()
 
         for index, initializer in enumerate(self.initializers):
-            indexed_memory = builder.gep(memory, (i64(0), i64(index),))
+            indexed_memory = builder.gep(memory, (i64(0), i64(index)))
             value = initializer.codegen(module, builder, namespace)
             builder.store(value, indexed_memory)
         return builder.load(memory)
@@ -787,7 +824,9 @@ class DotAccess(MemoryReference):
     left_side: MemoryReference
     member: str
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         pointer = self.get_pointer(module, builder, namespace)
         return builder.load(pointer)
 
@@ -808,7 +847,9 @@ class IndexAccess(MemoryReference):
     pointer: MemoryReference
     index: Expression
 
-    def codegen(self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = '') -> ir.Value:
+    def codegen(
+        self, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
+    ) -> ir.Value:
         pointer = self.get_pointer(module, builder, namespace)
         return builder.load(pointer)
 

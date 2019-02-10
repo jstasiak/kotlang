@@ -104,7 +104,7 @@ def _lex(text: str) -> Iterator[Token]:
 def scan_string_literal(text: str) -> Tuple[Token, str]:
     assert text[0] == '"'
     closing_quote_index = text.index('"', 1)
-    literal, text = text[:closing_quote_index + 1], text[closing_quote_index + 1:]
+    literal, text = text[: closing_quote_index + 1], text[closing_quote_index + 1 :]
     return Token(type=TokenType.string_literal, text=literal), text
 
 
@@ -131,10 +131,7 @@ def scan_whitespace(text: str) -> Tuple[Token, str]:
 
 
 def scan_comment(text: str) -> Tuple[Token, str]:
-    delimiters = {
-        '//': '\n',
-        '/*': '*/',
-    }
+    delimiters = {'//': '\n', '/*': '*/'}
     for begin, end in delimiters.items():
         if text.startswith(begin):
             break

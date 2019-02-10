@@ -56,7 +56,9 @@ class Context:
                 modules[source] = module
                 modules_needed_by_this_module = set(module.imports)
                 dependency_map[source] = modules_needed_by_this_module
-                modules_to_parse.extend(('by_name', m) for m in modules_needed_by_this_module - modules.keys())
+                modules_to_parse.extend(
+                    ('by_name', m) for m in modules_needed_by_this_module - modules.keys()
+                )
                 includes_to_parse.update(module.includes)
 
         with self.timed('Reading C headers'):
@@ -103,11 +105,7 @@ def topological_sort(deps: Dict[str, Set[str]]) -> List[str]:
     while deps:
         keys_with_no_deps = {k for k, v in deps.items() if not v}
         flat += keys_with_no_deps
-        deps = {
-            k: v - keys_with_no_deps
-            for k, v in deps.items()
-            if k not in keys_with_no_deps
-        }
+        deps = {k: v - keys_with_no_deps for k, v in deps.items() if k not in keys_with_no_deps}
     return flat
 
 

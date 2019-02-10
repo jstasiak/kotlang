@@ -30,12 +30,15 @@ else:
     ]
 
 from kotlang.clang import cindex  # noqa
+
 cindex.Config.set_library_file(libclang_file)
 clang_index = cindex.Index.create()
 
 
 def read_header(header: str) -> HeaderContents:
-    tu = clang_index.parse(find_header(header), options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
+    tu = clang_index.parse(
+        find_header(header), options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD
+    )
     types: List[ast.TypeDefinition] = []
     functions: List[ast.Function] = []
     variables: List[ast.VariableDeclaration] = []
@@ -48,15 +51,9 @@ def read_header(header: str) -> HeaderContents:
             # We skip macros here, we're only interested in literal defines
             if len(macro_tokens) == 1:
                 defines[c.spelling] = macro_tokens[0]
-        elif (
-            (
-                c.kind is cindex.CursorKind.STRUCT_DECL  # type: ignore
-                and c.is_definition()
-            )
-            or (
-                c.kind is cindex.CursorKind.TYPE_REF  # type: ignore
-                and c.type.kind is cindex.TypeKind.RECORD  # type: ignore
-            )
+        elif (c.kind is cindex.CursorKind.STRUCT_DECL and c.is_definition()) or (  # type: ignore
+            c.kind is cindex.CursorKind.TYPE_REF  # type: ignore
+            and c.type.kind is cindex.TypeKind.RECORD  # type: ignore
         ):
             types.append(convert_c_record_definition(c))
         elif (
@@ -114,12 +111,10 @@ def convert_c_function_declaration(declaration: cindex.Cursor) -> ast.Function:
     return_type = convert_c_type_reference(declaration.type.get_result())
 
     parameter_names_types = [
-        (p.spelling or None, convert_c_type_reference(p.type))
-        for p in declaration.get_arguments()
+        (p.spelling or None, convert_c_type_reference(p.type)) for p in declaration.get_arguments()
     ]
     parameters = ast.ParameterList(
-        [ast.Parameter(n, t) for (n, t) in parameter_names_types],
-        declaration.type.is_function_variadic(),
+        [ast.Parameter(n, t) for (n, t) in parameter_names_types], declaration.type.is_function_variadic()
     )
     return ast.Function(declaration.spelling, parameters, return_type, [], None)
 

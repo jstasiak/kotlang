@@ -61,12 +61,7 @@ class Emitter:
 @click.option('-f', '--output-format', default='obj', type=click.Choice(['asm', 'ir', 'obj']))
 @click.option('-O', '--optimization-level', default=0, type=int)
 def main(
-    source: str,
-    compile_only: bool,
-    output: str,
-    verbose: int,
-    output_format: str,
-    optimization_level: int,
+    source: str, compile_only: bool, output: str, verbose: int, output_format: str, optimization_level: int
 ) -> None:
     assert optimization_level in range(0, 3 + 1)
     timer = timing if verbose >= 2 else dummy_timing
@@ -102,10 +97,12 @@ def main(
     if output_format == 'obj' and not compile_only:
         with timer('Linking'):
             command_line = [
-                'cc', direct_output,
+                'cc',
+                direct_output,
                 # TODO: bring back declaring what libraries should we link with
                 # *(f'-l{library}' for library in ...),
-                '-o', final_output,
+                '-o',
+                final_output,
                 '-v',
             ]
             subprocess.check_call(command_line)

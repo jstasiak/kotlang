@@ -21,13 +21,15 @@ def parse(text: str, filename: str) -> ast.Module:
 
 def context_with_pointer(text: str, line: int, column: int) -> str:
     lines = text.split('\n')
-    return '\n'.join([
-        '// ...',
-        '\n'.join(lines[max(line - 5, 0):line + 1]),
-        '-' * column + '^',
-        '\n'.join(lines[line + 1:line + 5 + 1]),
-        '// ...',
-    ])
+    return '\n'.join(
+        [
+            '// ...',
+            '\n'.join(lines[max(line - 5, 0) : line + 1]),
+            '-' * column + '^',
+            '\n'.join(lines[line + 1 : line + 5 + 1]),
+            '// ...',
+        ]
+    )
 
 
 class ParseError(Exception):
@@ -60,8 +62,10 @@ def expect_no_eat(tokens: Peekable[Token], *what: ExpectedTokenT) -> Token:
 
     for w in what:
         if (
-            isinstance(w, TokenType) and next_token.type == w
-            or isinstance(w, str) and next_token.text == w
+            isinstance(w, TokenType)
+            and next_token.type == w
+            or isinstance(w, str)
+            and next_token.text == w
             or next_token == w
         ):
             return next_token
@@ -158,7 +162,9 @@ def read_cimport(tokens: Peekable[Token]) -> str:
     return header[1:-1]
 
 
-def read_function_header(tokens: Peekable[Token]) -> Tuple[str, List[str], ast.ParameterList, ast.TypeReference]:
+def read_function_header(
+    tokens: Peekable[Token]
+) -> Tuple[str, List[str], ast.ParameterList, ast.TypeReference]:
     expect(tokens, 'def')
     name = expect(tokens, TokenType.identifier)
     type_parameters = []
@@ -436,14 +442,16 @@ def read_primary_expression(tokens: Peekable[Token]) -> ast.Expression:  # noqa:
     elif next_token.text == '&':
         subexpression = read_primary_expression(tokens)
         # TODO: make this nicer
-        assert isinstance(subexpression, ast.VariableReference), \
-            'Can only get address of simple variable at the moment'
+        assert isinstance(
+            subexpression, ast.VariableReference
+        ), 'Can only get address of simple variable at the moment'
         to_return = ast.AddressOf(subexpression)
     elif next_token.text == '*':
         subexpression = read_primary_expression(tokens)
         # TODO: make this nicer
-        assert isinstance(subexpression, ast.VariableReference), \
-            'Can only get value of simple variable pointer at the moment'
+        assert isinstance(
+            subexpression, ast.VariableReference
+        ), 'Can only get value of simple variable pointer at the moment'
         to_return = ast.ValueAt(subexpression)
 
     else:

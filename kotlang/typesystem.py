@@ -94,11 +94,7 @@ class FloatType(Type):
         return f'f{self.bits}'
 
     def get_ir_type(self) -> ir.Type:
-        return {
-            32: ir.FloatType(),
-            64: ir.DoubleType(),
-            80: IRLongDoubleType(),
-        }[self.bits]
+        return {32: ir.FloatType(), 64: ir.DoubleType(), 80: IRLongDoubleType()}[self.bits]
 
 
 class IRLongDoubleType(ir.types._BaseFloatType):  # type: ignore
@@ -191,7 +187,7 @@ class StructType(DottableType):
         # See http://llvm.org/docs/LangRef.html#getelementptr-instruction
         i32 = ir.IntType(32)
         i64 = ir.IntType(64)
-        return builder.gep(base_pointer, (i64(0), i32(member_index),))
+        return builder.gep(base_pointer, (i64(0), i32(member_index)))
 
     def get_member_type(self, name: str) -> Type:
         for n, t in self.members:
@@ -253,7 +249,5 @@ class FunctionType(Type):
 
     def get_ir_type(self) -> ir.Type:
         return ir.FunctionType(
-            self.return_type.get_ir_type(),
-            [t.get_ir_type() for t in self.parameter_types],
-            self.variadic,
+            self.return_type.get_ir_type(), [t.get_ir_type() for t in self.parameter_types], self.variadic
         )
