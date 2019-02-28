@@ -8,7 +8,7 @@ from typing import Callable, ContextManager, Dict, List, Set
 
 from llvmlite import ir
 
-from kotlang import typesystem as ts
+from kotlang import codegen, typesystem as ts
 from kotlang.ast import Namespace
 from kotlang.cimport import merge_header_contents_into_module, read_header
 from kotlang.parser import parse, ParseError
@@ -84,9 +84,11 @@ class Context:
                 if module.includes:
                     headers_contents = [includes[i] for i in module.includes]
                     c_module = merge_header_contents_into_module(headers_contents)
-                    c_namespace = c_module.codegen(ir_module, [builtin_namespace], name + '_c')
+                    c_namespace = codegen.codegen_module(
+                        c_module, ir_module, [builtin_namespace], name + '_c'
+                    )
                     parent_namespaces.append(c_namespace)
-                namespace = module.codegen(ir_module, parent_namespaces, name)
+                namespace = codegen.codegen_module(module, ir_module, parent_namespaces, name)
                 namespaces[name] = namespace
 
         return ir_module
