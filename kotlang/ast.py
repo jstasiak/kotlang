@@ -222,27 +222,8 @@ class VariableDeclaration(Statement):
     def __post_init__(self) -> None:
         assert self.expression is not None or self.type_ is not None, (self.expression, self.type_)
 
-    def codegen_module_level(self, module: ir.Module, namespace: Namespace, module_name: str) -> None:
-        value = self.expression.get_constant_time_value() if self.expression else None
-        type_ = self.variable_type(namespace)
-        constant = ir.Constant(type_.get_ir_type(), value)
-        variable = ir.GlobalVariable(module, type_.get_ir_type(), mangle([module_name, self.name]))
-        variable.initializer = constant
-        variable.global_constant = True
-        namespace.add_value(Variable(self.name, type_, variable))
-
-    def variable_type(self, namespace: Namespace) -> ts.Type:
-        return (
-            self.type_.codegen(namespace)
-            if self.type_ is not None
-            else cast(Expression, self.expression).type(namespace)
-        )
-
 
 class Expression(Statement):
-    def type(self, namespace: Namespace) -> ts.Type:
-        raise NotImplementedError(f'type() not implemented for {type(self)}')
-
     def get_constant_time_value(self) -> Any:
         raise NotImplementedError(f'{0} is not a compile-time constant')
 
@@ -251,16 +232,10 @@ class Expression(Statement):
 class NegativeExpression(Expression):
     expression: Expression
 
-    def type(self, namespace: Namespace) -> ts.Type:
-        return self.expression.type(namespace)
-
 
 @dataclass
 class BoolNegationExpression(Expression):
     expression: Expression
-
-    def type(self, namespace: Namespace) -> ts.Type:
-        return self.expression.type(namespace)
 
 
 @dataclass
@@ -270,21 +245,11 @@ class BinaryExpression(Expression):
     right_operand: Expression
     name: str = ''
 
-    def type(self, namespace: Namespace) -> ts.Type:
-        if self.operator in {'<', '>', '<=', '>=', '==', '!='}:
-            return namespace.get_type('bool')
-        elif self.operator in {'+', '-', '*', '/'}:
-            return self.left_operand.type(namespace)
-        assert False, (self.operator, self.left_operand, self.right_operand)
-
 
 @dataclass
 class FunctionCall(Expression):
     name: str
     parameters: List[Expression]
-
-    def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_type('i64')
 
 
 """
@@ -298,9 +263,6 @@ class StructInstantiation(Expression):
     name: str
     parameters: List[Expression]
 
-    def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_type(self.name)
-
 
 @dataclass
 class StringLiteral(Expression):
@@ -308,9 +270,6 @@ class StringLiteral(Expression):
 
     def __post_init__(self) -> None:
         self.text = evaluate_escape_sequences(self.text)
-
-    def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_type('i8').as_pointer()
 
 
 def evaluate_escape_sequences(text: str) -> str:
@@ -321,9 +280,6 @@ def evaluate_escape_sequences(text: str) -> str:
 class IntegerLiteral(Expression):
     text: str
 
-    def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_type('i64')
-
     def get_constant_time_value(self) -> Any:
         return int(self.text)
 
@@ -332,16 +288,10 @@ class IntegerLiteral(Expression):
 class FloatLiteral(Expression):
     text: str
 
-    def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_type('f64')
-
 
 @dataclass
 class BoolLiteral(Expression):
     value: bool
-
-    def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_type('bool')
 
 
 class MemoryReference(Expression):
@@ -352,43 +302,21 @@ class MemoryReference(Expression):
 class VariableReference(MemoryReference):
     name: str
 
-    def type(self, namespace: Namespace) -> ts.Type:
-        value: TypingUnion[Function, Variable]
-        try:
-            function = namespace.get_function(self.name)
-        except KeyError:
-            variable = namespace.get_value(self.name)
-            return variable.type_
-        else:
-            return function.get_type(namespace)
-
 
 @dataclass
 class AddressOf(MemoryReference):
     variable: VariableReference
-
-    def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_value(self.variable.name).type_.as_pointer()
 
 
 @dataclass
 class ValueAt(MemoryReference):
     variable: VariableReference
 
-    def type(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_value(self.variable.name).type_.as_pointee()
-
 
 @dataclass
 class Assignment(Expression):
     target: Expression
     expression: Expression
-
-    def type(self, namespace: Namespace) -> ts.Type:
-        # TODO and possibly quite important - type of expression can be different than the type of the target
-        # (for example expression of type i8 assigned to i64 location) - which one should we use?
-        # For now we take the original value but it may not be expected or desired.
-        return self.expression.type(namespace)
 
 
 @dataclass
@@ -398,36 +326,17 @@ class ArrayLiteral(Expression):
     def __post_init__(self) -> None:
         assert len(self.initializers) > 0
 
-    def type(self, namespace: Namespace) -> ts.Type:
-        # TODO make sure all elements are of the same type or can be coerced to one
-        element_type = self.initializers[0].type(namespace)
-        return ts.ArrayType(element_type, len(self.initializers))
-
 
 @dataclass
 class DotAccess(MemoryReference):
     left_side: MemoryReference
     member: str
 
-    def type(self, namespace: Namespace) -> ts.Type:
-        left_type = self.left_side.type(namespace)
-        assert isinstance(left_type, ts.DottableType), left_type
-        return left_type.get_member_type(self.member)
-
 
 @dataclass
 class IndexAccess(MemoryReference):
     pointer: MemoryReference
     index: Expression
-
-    def type(self, namespace: Namespace) -> ts.Type:
-        base_type = self.pointer.type(namespace)
-        if isinstance(base_type, ts.PointerType):
-            return base_type.pointee
-        elif isinstance(base_type, ts.ArrayType):
-            return base_type.element_type
-        else:
-            assert False, f'Bad memory reference: {self.pointer}'
 
 
 class TypeReference:

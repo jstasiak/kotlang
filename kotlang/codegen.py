@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from itertools import zip_longest
-from typing import Collection, Dict, List, Union
+from typing import cast, Collection, Dict, List, Union
 
 from llvmlite import ir
 
 from kotlang import ast, typesystem as ts
+from kotlang.symbols import mangle
 
 
 def codegen_module(
@@ -23,7 +24,7 @@ def codegen_module(
         module_namespace.add_function(f)
 
     for variable_declaration in node.variables:
-        variable_declaration.codegen_module_level(module, module_namespace, module_name)
+        codegen_variable_module_level(variable_declaration, module, module_namespace, module_name)
 
     nongeneric_functions = (f for f in node.functions if not f.is_generic)
     for f in nongeneric_functions:
@@ -86,7 +87,7 @@ def codegen_statement(  # noqa: C901
         else:
             builder.ret_void()
     elif isinstance(node, ast.VariableDeclaration):
-        type_ = node.variable_type(namespace)
+        type_ = variable_type(node, namespace)
         ir_type = type_.get_ir_type()
         if isinstance(type_, ts.FunctionType):
             # TODO: now our typesystem things we're dealing with functions while actually we're
@@ -97,7 +98,7 @@ def codegen_statement(  # noqa: C901
         namespace.add_value(ast.Variable(node.name, type_, memory))
         if node.expression is not None:
             value = codegen_expression(node.expression, module, builder, namespace)
-            adapted_value = type_.adapt(builder, value, node.expression.type(namespace))
+            adapted_value = type_.adapt(builder, value, expression_type(node.expression, namespace))
             builder.store(adapted_value, memory)
     elif isinstance(node, ast.Expression):
         codegen_expression(node, module, builder, namespace)
@@ -113,7 +114,7 @@ def codegen_expression(  # noqa: C901
         value.constant = -value.constant
         return value
     elif isinstance(node, ast.BoolNegationExpression):
-        assert node.expression.type(namespace).name == 'bool', node.expression
+        assert expression_type(node.expression, namespace).name == 'bool', node.expression
 
         value_to_negate = codegen_expression(node.expression, module, builder, namespace)
         return builder.not_(value_to_negate, name=name)
@@ -205,7 +206,7 @@ def codegen_expression(  # noqa: C901
 
         assert len(node.parameters) >= len(parameter_names), (node.name, node.parameters)
 
-        provided_parameter_types = [p.type(namespace) for p in node.parameters]
+        provided_parameter_types = [expression_type(p, namespace) for p in node.parameters]
         for i, (value, from_type, to_type) in enumerate(
             zip(parameter_values, provided_parameter_types, parameter_types)
         ):
@@ -236,7 +237,7 @@ def codegen_expression(  # noqa: C901
     elif isinstance(node, ast.BoolLiteral):
         return namespace.get_type('bool').get_ir_type()(node.value)
     elif isinstance(node, ast.VariableReference):
-        type_ = node.type(namespace)
+        type_ = expression_type(node, namespace)
         pointer = get_pointer(node, module, builder, namespace)
         # The first part of this condition makes sure we keep referring to functions by their pointers.
         # The second makes it so that if we're referring to a variable already (pointer here is a pointer to
@@ -254,12 +255,12 @@ def codegen_expression(  # noqa: C901
     elif isinstance(node, ast.Assignment):
         pointer = get_pointer(node.target, module, builder, namespace)
         value = codegen_expression(node.expression, module, builder, namespace)
-        destination_type = node.target.type(namespace)
-        adapted_value = destination_type.adapt(builder, value, node.expression.type(namespace))
+        destination_type = expression_type(node.target, namespace)
+        adapted_value = destination_type.adapt(builder, value, expression_type(node.expression, namespace))
         builder.store(adapted_value, pointer)
         return value
     elif isinstance(node, ast.ArrayLiteral):
-        type_ = node.type(namespace)
+        type_ = expression_type(node, namespace)
         memory = builder.alloca(type_.get_ir_type(), name=name)
         i64 = namespace.get_type('i64').get_ir_type()
 
@@ -285,7 +286,7 @@ def loop_helper(
     condition: ast.Expression,
     body: ast.Statement,
 ) -> None:
-    assert isinstance(condition.type(namespace), ts.BoolType)
+    assert isinstance(expression_type(condition, namespace), ts.BoolType)
     condition_block = builder.append_basic_block('loop.condition')
     body_block = builder.append_basic_block('loop.body')
     exit_block = builder.append_basic_block('loop.exit')
@@ -311,7 +312,7 @@ def namespace_for_specialized_function(
         assert isinstance(parameter.type_, ast.BaseTypeReference), 'TODO support pointers etc. here'
         type_name = parameter.type_.name
         if type_name in function.type_parameters:
-            deduced_type = expression.type(namespace)
+            deduced_type = expression_type(expression, namespace)
             assert type_name not in mapping or mapping[type_name] == deduced_type
             mapping[type_name] = deduced_type
 
@@ -396,12 +397,12 @@ def get_pointer(
     elif isinstance(node, ast.ValueAt):
         return codegen_expression(node.variable, module, builder, namespace)
     elif isinstance(node, ast.DotAccess):
-        left_type = node.left_side.type(namespace)
+        left_type = expression_type(node.left_side, namespace)
         assert isinstance(left_type, ts.DottableType), left_type
         left_pointer = get_pointer(node.left_side, module, builder, namespace)
         return left_type.get_member_pointer(builder, left_pointer, node.member)
     elif isinstance(node, ast.IndexAccess):
-        pointer_type = node.pointer.type(namespace)
+        pointer_type = expression_type(node.pointer, namespace)
         pointer = get_pointer(node.pointer, module, builder, namespace)
         index = codegen_expression(node.index, module, builder, namespace)
         i64 = namespace.get_type('i64').get_ir_type()
@@ -415,3 +416,82 @@ def get_pointer(
         raise AssertionError(
             f'{type(node).__name__} cannot be used as a l-value nor can you grab its address'
         )
+
+
+def expression_type(node: ast.Expression, namespace: ast.Namespace) -> ts.Type:  # noqa: C901
+    if isinstance(node, (ast.NegativeExpression, ast.BoolNegationExpression)):
+        return expression_type(node.expression, namespace)
+    elif isinstance(node, ast.BinaryExpression):
+        if node.operator in {'<', '>', '<=', '>=', '==', '!='}:
+            return namespace.get_type('bool')
+        elif node.operator in {'+', '-', '*', '/'}:
+            return expression_type(node.left_operand, namespace)
+        assert False, (node.operator, node.left_operand, node.right_operand)
+    elif isinstance(node, ast.FunctionCall):
+        return namespace.get_type('i64')
+    elif isinstance(node, ast.StructInstantiation):
+        return namespace.get_type(node.name)
+    elif isinstance(node, ast.StringLiteral):
+        return namespace.get_type('i8').as_pointer()
+    elif isinstance(node, ast.IntegerLiteral):
+        return namespace.get_type('i64')
+    elif isinstance(node, ast.FloatLiteral):
+        return namespace.get_type('f64')
+    elif isinstance(node, ast.BoolLiteral):
+        return namespace.get_type('bool')
+    elif isinstance(node, ast.VariableReference):
+        value: Union[ast.Function, ast.Variable]
+        try:
+            function = namespace.get_function(node.name)
+        except KeyError:
+            variable = namespace.get_value(node.name)
+            return variable.type_
+        else:
+            return function.get_type(namespace)
+    elif isinstance(node, ast.AddressOf):
+        return namespace.get_value(node.variable.name).type_.as_pointer()
+    elif isinstance(node, ast.ValueAt):
+        return namespace.get_value(node.variable.name).type_.as_pointee()
+    elif isinstance(node, ast.Assignment):
+        # TODO and possibly quite important - type of expression can be different than the type of the target
+        # (for example expression of type i8 assigned to i64 location) - which one should we use?
+        # For now we take the original value but it may not be expected or desired.
+        return expression_type(node.expression, namespace)
+    elif isinstance(node, ast.ArrayLiteral):
+        # TODO make sure all elements are of the same type or can be coerced to one
+        element_type = expression_type(node.initializers[0], namespace)
+        return ts.ArrayType(element_type, len(node.initializers))
+    elif isinstance(node, ast.DotAccess):
+        left_type = expression_type(node.left_side, namespace)
+        assert isinstance(left_type, ts.DottableType), left_type
+        return left_type.get_member_type(node.member)
+    elif isinstance(node, ast.IndexAccess):
+        base_type = expression_type(node.pointer, namespace)
+        if isinstance(base_type, ts.PointerType):
+            return base_type.pointee
+        elif isinstance(base_type, ts.ArrayType):
+            return base_type.element_type
+        else:
+            assert False, f'Bad memory reference: {node.pointer}'
+    else:
+        raise AssertionError(f'{type(node).__name__} cannot be used here')
+
+
+def codegen_variable_module_level(
+    node: ast.VariableDeclaration, module: ir.Module, namespace: ast.Namespace, module_name: str
+) -> None:
+    value = node.expression.get_constant_time_value() if node.expression else None
+    type_ = variable_type(node, namespace)
+    constant = ir.Constant(type_.get_ir_type(), value)
+    variable = ir.GlobalVariable(module, type_.get_ir_type(), mangle([module_name, node.name]))
+    variable.initializer = constant
+    variable.global_constant = True
+    namespace.add_value(ast.Variable(node.name, type_, variable))
+
+
+def variable_type(node: ast.VariableDeclaration, namespace: ast.Namespace) -> ts.Type:
+    return (
+        node.type_.codegen(namespace)
+        if node.type_ is not None
+        else expression_type(cast(ast.Expression, node.expression), namespace)
+    )
