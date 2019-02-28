@@ -29,7 +29,7 @@ Architecture
 Running tests
 -------------
 
-The run tests (assumes activated Python 3.7 virtualenv and the current directory
+To run tests (assumes activated Python 3.7 virtualenv and the current directory
 being a cloned repository root)::
 
   pip install --upgrade '.[dev]'
