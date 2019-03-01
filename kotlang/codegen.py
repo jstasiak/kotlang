@@ -215,8 +215,9 @@ def codegen_expression(  # noqa: C901
         return builder.call(llvm_function, parameter_values, name=name)
     elif isinstance(node, ast.StructInstantiation):
         struct = namespace.get_type(node.name)
-        assert isinstance(struct, ts.StructType)
+        assert isinstance(struct, ts.StructUnionType)
         assert len(node.parameters) == len(struct.members)
+        assert not struct.is_union
 
         member_names = [m[0] for m in struct.members]
         memory = builder.alloca(struct.get_ir_type())
@@ -398,7 +399,7 @@ def get_pointer(
         return codegen_expression(node.variable, module, builder, namespace)
     elif isinstance(node, ast.DotAccess):
         left_type = expression_type(node.left_side, namespace)
-        assert isinstance(left_type, ts.DottableType), left_type
+        assert isinstance(left_type, ts.StructUnionType), left_type
         left_pointer = get_pointer(node.left_side, module, builder, namespace)
         return left_type.get_member_pointer(builder, left_pointer, node.member)
     elif isinstance(node, ast.IndexAccess):
@@ -463,7 +464,7 @@ def expression_type(node: ast.Expression, namespace: ast.Namespace) -> ts.Type: 
         return ts.ArrayType(element_type, len(node.initializers))
     elif isinstance(node, ast.DotAccess):
         left_type = expression_type(node.left_side, namespace)
-        assert isinstance(left_type, ts.DottableType), left_type
+        assert isinstance(left_type, ts.StructUnionType), left_type
         return left_type.get_member_type(node.member)
     elif isinstance(node, ast.IndexAccess):
         base_type = expression_type(node.pointer, namespace)

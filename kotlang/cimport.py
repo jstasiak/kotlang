@@ -39,7 +39,7 @@ def read_header(header: str) -> HeaderContents:
     tu = clang_index.parse(
         find_header(header), options=cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD
     )
-    types: List[ast.TypeDefinition] = []
+    types: List[ast.StructUnion] = []
     functions: List[ast.Function] = []
     variables: List[ast.VariableDeclaration] = []
     cursors = [tu.cursor]
@@ -84,7 +84,7 @@ def find_header(header: str) -> str:
 
 @dataclass
 class HeaderContents:
-    types: List[ast.TypeDefinition]
+    types: List[ast.StructUnion]
     functions: List[ast.Function]
     variables: List[ast.VariableDeclaration]
 
@@ -119,7 +119,7 @@ def convert_c_function_declaration(declaration: cindex.Cursor) -> ast.Function:
     return ast.Function(declaration.spelling, parameters, return_type, [], None)
 
 
-def convert_c_record_definition(declaration: cindex.Cursor) -> Union[ast.Struct, ast.Union]:
+def convert_c_record_definition(declaration: cindex.Cursor) -> ast.StructUnion:
     name = declaration.spelling
     this_type = 'struct'
     if declaration.kind is cindex.CursorKind.TYPE_REF:  # type: ignore
@@ -133,9 +133,9 @@ def convert_c_record_definition(declaration: cindex.Cursor) -> Union[ast.Struct,
         assert declaration.kind is cindex.CursorKind.STRUCT_DECL  # type: ignore
     members = [(c.spelling, convert_c_type_reference(c.type)) for c in declaration.type.get_fields()]
     if this_type == 'struct':
-        return ast.Struct(name, members)
+        return ast.StructUnion(name, members, False)
     else:
-        return ast.Union(name, members)
+        return ast.StructUnion(name, members, True)
 
 
 def convert_c_type_reference(ref: cindex.Type) -> ast.TypeReference:

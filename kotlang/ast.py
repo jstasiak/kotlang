@@ -31,42 +31,17 @@ class Node:
 
 
 @dataclass
-class TypeDefinition:
+class StructUnion:
     name: str
-
-    def get_dummy_type(self) -> TypingUnion[ts.StructType, ts.UnionType]:
-        # Complex types can contain references to themselves so we split creating types into two phases.
-        # This is the first one. After the returned type is added to a namespace we call fill_type_members()
-        raise NotImplementedError()
-
-    def fill_type_members(self, namespace: Namespace, type_: ts.Type) -> None:
-        raise NotImplementedError()
-
-
-@dataclass
-class Struct(TypeDefinition):
     members: List[Tuple[str, TypeReference]]
+    is_union: bool
 
-    def get_dummy_type(self) -> ts.StructType:
-        return ts.StructType(self.name, [])
+    def get_dummy_type(self) -> ts.StructUnionType:
+        return ts.StructUnionType(self.name, [], self.is_union)
 
     def fill_type_members(self, namespace: Namespace, type_: ts.Type) -> None:
         # Note: This method mutates type_
-        assert isinstance(type_, ts.StructType)
-        members = [(n, t.codegen(namespace)) for n, t in self.members]
-        type_.members = members
-
-
-@dataclass
-class Union(TypeDefinition):
-    members: List[Tuple[str, TypeReference]]
-
-    def get_dummy_type(self) -> ts.UnionType:
-        return ts.UnionType(self.name, [])
-
-    def fill_type_members(self, namespace: Namespace, type_: ts.Type) -> None:
-        # Note: This method mutates type_
-        assert isinstance(type_, ts.UnionType)
+        assert isinstance(type_, ts.StructUnionType)
         members = [(n, t.codegen(namespace)) for n, t in self.members]
         type_.members = members
 
@@ -100,7 +75,7 @@ class Function:
 
 @dataclass
 class Module:
-    types: List[TypeDefinition]
+    types: List[StructUnion]
     functions: List[Function]
     imports: List[str]
     includes: List[str]
@@ -415,10 +390,10 @@ class ParameterList(Iterable[Parameter]):
         return iter(self.parameters)
 
 
-def get_builtin_va_list_struct() -> Struct:
+def get_builtin_va_list_struct() -> StructUnion:
     # NOTE: this is Clang-specific and x86 64-bit ABI-specific
     # TODO: make this platform independent?
-    return Struct(
+    return StructUnion(
         '__va_list_tag',
         [
             ('gp_offset', BaseTypeReference('i32')),
@@ -427,4 +402,5 @@ def get_builtin_va_list_struct() -> Struct:
             ('overflow_arg_area', BaseTypeReference('i8').as_pointer()),
             ('reg_save_area', BaseTypeReference('i8').as_pointer()),
         ],
+        False,
     )

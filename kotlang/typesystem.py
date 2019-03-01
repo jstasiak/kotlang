@@ -8,11 +8,9 @@ from llvmlite import ir
 
 @dataclass
 class Type:
-    def get_ir_type(self) -> ir.Type:
-        raise NotImplementedError(f'Not implemented for {type(self)}')
+    name: str = field(init=False)
 
-    @property
-    def name(self) -> str:
+    def get_ir_type(self) -> ir.Type:
         raise NotImplementedError(f'Not implemented for {type(self)}')
 
     def as_pointer(self) -> PointerType:
@@ -38,9 +36,7 @@ class Type:
 
 @dataclass
 class VoidType(Type):
-    @property
-    def name(self) -> str:
-        return 'void'
+    name = 'void'
 
     def get_ir_type(self) -> ir.Type:
         return ir.VoidType()
@@ -54,10 +50,9 @@ class IntType(Type):
     bits: int
     signed: bool
 
-    @property
-    def name(self) -> str:
+    def __post_init__(self) -> None:
         prefix = 'i' if self.signed else 'u'
-        return f'{prefix}{self.bits}'
+        self.name = f'{prefix}{self.bits}'
 
     def get_ir_type(self) -> ir.Type:
         return ir.IntType(self.bits)
@@ -89,9 +84,8 @@ class IntType(Type):
 class FloatType(Type):
     bits: int
 
-    @property
-    def name(self) -> str:
-        return f'f{self.bits}'
+    def __post_init__(self) -> None:
+        self.name = f'f{self.bits}'
 
     def get_ir_type(self) -> ir.Type:
         return {32: ir.FloatType(), 64: ir.DoubleType(), 80: IRLongDoubleType()}[self.bits]
@@ -119,9 +113,7 @@ IRLongDoubleType._create_instance()
 
 @dataclass
 class BoolType(Type):
-    @property
-    def name(self) -> str:
-        return 'bool'
+    name = 'bool'
 
     def get_ir_type(self) -> ir.Type:
         return ir.IntType(1)
@@ -131,9 +123,8 @@ class BoolType(Type):
 class PointerType(Type):
     pointee: Type
 
-    @property
-    def name(self) -> str:
-        return self.pointee.name + '*'
+    def __post_init__(self) -> None:
+        self.name = self.pointee.name + '*'
 
     def get_ir_type(self) -> ir.Type:
         return self.pointee.get_ir_type().as_pointer()
@@ -154,75 +145,51 @@ class PointerType(Type):
         return 8
 
 
-class DottableType(Type):
-    def get_member_type(self, name: str) -> Type:
-        raise NotImplementedError()
-
-    def get_member_pointer(self, builder: ir.IRBuilder, base_pointer: ir.Value, name: str) -> ir.Value:
-        raise NotImplementedError()
-
-
 @dataclass
-class StructType(DottableType):
-    struct_name: str
+class StructUnionType(Type):
+    name: str
     members: List[Tuple[str, Type]]
-
-    @property
-    def name(self) -> str:
-        return self.struct_name
+    is_union: bool
 
     def get_ir_type(self) -> ir.Type:
-        member_types = [t.get_ir_type() for n, t in self.members]
-        return ir.LiteralStructType(member_types)
+        if self.is_union:
+            size = max(t.get_required_size_in_bytes() for (_, t) in self.members)
+            return ir.LiteralStructType([ir.ArrayType(ir.IntType(8), size)])
+        else:
+            member_types = [t.get_ir_type() for n, t in self.members]
+            return ir.LiteralStructType(member_types)
 
     def get_member_pointer(self, builder: ir.IRBuilder, base_pointer: ir.Value, name: str) -> ir.Value:
-        member_index = -1
-        for i, (n, t) in enumerate(self.members):
-            if n == name:
-                member_index = i
-        if member_index == -1:
-            raise KeyError()
+        if self.is_union:
+            member_type = self.get_member_type(name)
+            member_ir_type = member_type.get_ir_type()
+            return builder.bitcast(base_pointer, member_ir_type.as_pointer())
+        else:
+            member_index = -1
+            for i, (n, t) in enumerate(self.members):
+                if n == name:
+                    member_index = i
+            if member_index == -1:
+                raise KeyError()
 
-        # i32 is mandatory when indexing within a structure.
-        # See http://llvm.org/docs/LangRef.html#getelementptr-instruction
-        i32 = ir.IntType(32)
-        i64 = ir.IntType(64)
-        return builder.gep(base_pointer, (i64(0), i32(member_index)))
+            # i32 is mandatory when indexing within a structure.
+            # See http://llvm.org/docs/LangRef.html#getelementptr-instruction
+            i32 = ir.IntType(32)
+            i64 = ir.IntType(64)
+            return builder.gep(base_pointer, (i64(0), i32(member_index)))
 
     def get_member_type(self, name: str) -> Type:
         for n, t in self.members:
             if n == name:
                 return t
+
         raise KeyError()
 
-
-@dataclass
-class UnionType(DottableType):
-    union_name: str
-    members: List[Tuple[str, Type]]
-
-    @property
-    def name(self) -> str:
-        return self.union_name
-
-    def get_ir_type(self) -> ir.Type:
-        size = max(t.get_required_size_in_bytes() for (_, t) in self.members)
-        return ir.LiteralStructType([ir.ArrayType(ir.IntType(8), size)])
-
-    def get_member_pointer(self, builder: ir.IRBuilder, base_pointer: ir.Value, name: str) -> ir.Value:
-        member_type = self.get_member_type(name)
-        member_ir_type = member_type.get_ir_type()
-        return builder.bitcast(base_pointer, member_ir_type.as_pointer())
-
-    def get_member_type(self, name: str) -> Type:
-        for n, t in self.members:
-            if n == name:
-                return t
-        raise KeyError()
-
-    def alignment(self) -> int:
-        # TODO: deduce this
-        return 8
+    def alignment(self) -> Optional[int]:
+        if self.is_union:
+            # TODO: deduce this
+            return 8
+        return None
 
 
 @dataclass
@@ -230,9 +197,8 @@ class ArrayType(Type):
     element_type: Type
     length: int
 
-    @property
-    def name(self) -> str:
-        return f'{self.element_type.name}[{self.length}]'
+    def __post_init__(self) -> None:
+        self.name = f'{self.element_type.name}[{self.length}]'
 
     def get_ir_type(self) -> ir.Type:
         return ir.ArrayType(self.element_type.get_ir_type(), self.length)
@@ -246,6 +212,8 @@ class FunctionType(Type):
     parameter_types: List[Type]
     return_type: Type
     variadic: bool
+    # FIXME: remove this
+    name = 'dummy'
 
     def get_ir_type(self) -> ir.Type:
         return ir.FunctionType(
