@@ -19,8 +19,6 @@ from typing import (
 
 from llvmlite import ir
 
-from kotlang import typesystem as ts
-
 
 class Node:
     pass
@@ -31,9 +29,6 @@ class StructUnion:
     name: str
     members: List[Tuple[str, TypeReference]]
     is_union: bool
-
-    def get_dummy_type(self) -> ts.StructUnionType:
-        return ts.StructUnionType(self.name, [], self.is_union)
 
 
 @dataclass

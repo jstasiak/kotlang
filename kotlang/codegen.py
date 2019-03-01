@@ -15,7 +15,7 @@ def codegen_module(
 ) -> Namespace:
     module_namespace = Namespace(parents=parent_namespaces)
 
-    definitions_types = [(td, td.get_dummy_type()) for td in node.types]
+    definitions_types = [(td, ts.StructUnionType(td.name, [], td.is_union)) for td in node.types]
     for _, t in definitions_types:
         module_namespace.add_type(t)
     for td, t in definitions_types:
