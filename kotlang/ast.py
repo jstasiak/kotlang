@@ -16,7 +16,6 @@ from typing import (
     Optional,
     Tuple,
     Type as TypingType,
-    TypeVar,
     Union as TypingUnion,
 )
 
@@ -60,60 +59,6 @@ class Module:
     imports: List[str]
     includes: List[str]
     variables: List[VariableDeclaration]
-
-
-@dataclass
-class Variable:
-    name: str
-    type_: ts.Type
-    value: ir.Value
-
-
-_T = TypeVar('_T')
-
-
-@dataclass
-class Namespace:
-    parents: List[Namespace] = field(default_factory=list)
-    types: Dict[str, ts.Type] = field(default_factory=dict)
-    values: Dict[str, Variable] = field(default_factory=dict)
-    functions: Dict[str, Function] = field(default_factory=dict)
-
-    def add_type(self, t: ts.Type, name: Optional[str] = None) -> None:
-        self._add_item(self.types, t, name or t.name)
-
-    def add_value(self, t: Variable) -> None:
-        self._add_item(self.values, t, t.name)
-
-    def add_function(self, t: Function) -> None:
-        self._add_item(self.functions, t, t.name)
-
-    def _add_item(self, sub: Dict[str, _T], item: _T, name: str) -> None:
-        # This method mutates sub
-        assert name not in sub, name
-        sub[name] = item
-
-    def get_type(self, name: str) -> ts.Type:
-        return cast(ts.Type, self._get_item('types', name))
-
-    def get_value(self, name: str) -> Variable:
-        return cast(Variable, self._get_item('values', name))
-
-    def get_function(self, name: str) -> Function:
-        return cast(Function, self._get_item('functions', name))
-
-    def _get_item(self, sub_name: str, name: str) -> Any:
-        sub = getattr(self, sub_name)
-        try:
-            result = sub[name]
-            return result
-        except KeyError:
-            for p in self.parents:
-                try:
-                    return p._get_item(sub_name, name)
-                except KeyError:
-                    pass
-            raise KeyError(name)
 
 
 class Statement:

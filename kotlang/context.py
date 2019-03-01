@@ -9,8 +9,8 @@ from typing import Callable, ContextManager, Dict, List, Set
 from llvmlite import ir
 
 from kotlang import codegen, typesystem as ts
-from kotlang.ast import Namespace
 from kotlang.cimport import merge_header_contents_into_module, read_header
+from kotlang.codegen import Namespace
 from kotlang.parser import parse, ParseError
 
 

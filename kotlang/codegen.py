@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from itertools import zip_longest
-from typing import cast, Collection, Dict, List, Union
+from typing import Any, cast, Collection, Dict, List, Optional, TypeVar, Union
 
 from llvmlite import ir
 
@@ -10,9 +11,9 @@ from kotlang.symbols import mangle
 
 
 def codegen_module(
-    node: ast.Module, module: ir.Module, parent_namespaces: List[ast.Namespace], module_name: str
-) -> ast.Namespace:
-    module_namespace = ast.Namespace(parents=parent_namespaces)
+    node: ast.Module, module: ir.Module, parent_namespaces: List[Namespace], module_name: str
+) -> Namespace:
+    module_namespace = Namespace(parents=parent_namespaces)
 
     definitions_types = [(td, td.get_dummy_type()) for td in node.types]
     for _, t in definitions_types:
@@ -33,9 +34,7 @@ def codegen_module(
     return module_namespace
 
 
-def fill_structunion_members(
-    node: ast.StructUnion, namespace: ast.Namespace, type_: ts.StructUnionType
-) -> None:
+def fill_structunion_members(node: ast.StructUnion, namespace: Namespace, type_: ts.StructUnionType) -> None:
     # Note: This method mutates type_
     assert isinstance(type_, ts.StructUnionType)
     members = [(n, resolve_type(t, namespace)) for n, t in node.members]
@@ -43,13 +42,13 @@ def fill_structunion_members(
 
 
 def codegen_statement(  # noqa: C901
-    node: ast.Statement, module: ir.Module, builder: ir.IRBuilder, namespace: ast.Namespace
+    node: ast.Statement, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace
 ) -> None:
     if isinstance(node, ast.CompoundStatement):
         for s in node.statements:
             codegen_statement(s, module, builder, namespace)
     elif isinstance(node, ast.CodeBlock):
-        block_namespace = ast.Namespace(parents=[namespace])
+        block_namespace = Namespace(parents=[namespace])
         for s in node.statements:
             codegen_statement(s, module, builder, block_namespace)
     elif isinstance(node, ast.IfStatement):
@@ -86,7 +85,7 @@ def codegen_statement(  # noqa: C901
     elif isinstance(node, ast.WhileLoop):
         loop_helper(module, builder, namespace, node.condition, node.body)
     elif isinstance(node, ast.ForLoop):
-        loop_namespace = ast.Namespace(parents=[namespace])
+        loop_namespace = Namespace(parents=[namespace])
         codegen_statement(node.entry, module, builder, loop_namespace)
         actual_body = ast.CompoundStatement([node.body, node.step])
         loop_helper(module, builder, loop_namespace, node.condition, actual_body)
@@ -104,7 +103,7 @@ def codegen_statement(  # noqa: C901
             # if the abstraction is right.
             ir_type = ir_type.as_pointer()
         memory = builder.alloca(ir_type, name=node.name)
-        namespace.add_value(ast.Variable(node.name, type_, memory))
+        namespace.add_value(Variable(node.name, type_, memory))
         if node.expression is not None:
             value = codegen_expression(node.expression, module, builder, namespace)
             adapted_value = type_.adapt(builder, value, expression_type(node.expression, namespace))
@@ -116,7 +115,7 @@ def codegen_statement(  # noqa: C901
 
 
 def codegen_expression(  # noqa: C901
-    node: ast.Expression, module: ir.Module, builder: ir.IRBuilder, namespace: ast.Namespace, name: str = ''
+    node: ast.Expression, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace, name: str = ''
 ) -> ir.Value:
     if isinstance(node, ast.NegativeExpression):
         value = codegen_expression(node.expression, module, builder, namespace, name)
@@ -179,13 +178,13 @@ def codegen_expression(  # noqa: C901
             f'Invalid operand, operator, operand triple: ({left_value.type}, {right_value.type}, {node.operator})'
         )  # noqa
     elif isinstance(node, ast.FunctionCall):
-        function: Union[ast.Function, ast.Variable]
+        function: Union[ast.Function, Variable]
         parameter_names: List[str]
         try:
             function = namespace.get_function(node.name)
         except KeyError:
             function = namespace.get_value(node.name)
-            assert isinstance(function, ast.Variable)
+            assert isinstance(function, Variable)
             assert isinstance(function.type_, ts.FunctionType)
             parameter_types = function.type_.parameter_types
             # TODO provide parameter names here somehow? We don't have them right now.
@@ -292,7 +291,7 @@ def codegen_expression(  # noqa: C901
 def loop_helper(
     module: ir.Module,
     builder: ir.IRBuilder,
-    namespace: ast.Namespace,
+    namespace: Namespace,
     condition: ast.Expression,
     body: ast.Statement,
 ) -> None:
@@ -315,8 +314,8 @@ def loop_helper(
 
 
 def namespace_for_specialized_function(
-    namespace: ast.Namespace, function: ast.Function, arguments: Collection[ast.Expression]
-) -> ast.Namespace:
+    namespace: Namespace, function: ast.Function, arguments: Collection[ast.Expression]
+) -> Namespace:
     mapping: Dict[str, ts.Type] = {}
     for parameter, expression in zip(function.parameters, arguments):
         assert isinstance(parameter.type_, ast.BaseTypeReference), 'TODO support pointers etc. here'
@@ -326,14 +325,14 @@ def namespace_for_specialized_function(
             assert type_name not in mapping or mapping[type_name] == deduced_type
             mapping[type_name] = deduced_type
 
-    new_namespace = ast.Namespace(parents=[namespace])
+    new_namespace = Namespace(parents=[namespace])
     for name, type_ in mapping.items():
         new_namespace.add_type(type_, name)
     return new_namespace
 
 
 def get_or_create_llvm_function(
-    module: ir.Module, namespace: ast.Namespace, function: ast.Function
+    module: ir.Module, namespace: Namespace, function: ast.Function
 ) -> ir.Function:
     symbol_name = function_symbol_name(function, namespace)
     try:
@@ -351,14 +350,14 @@ def get_or_create_llvm_function(
             block = llvm_function.append_basic_block(name="entry")
             builder = ir.IRBuilder(block)
 
-            function_namespace = ast.Namespace(parents=[namespace])
+            function_namespace = Namespace(parents=[namespace])
             parameter_types = zip(function.parameters, ft.parameter_types)
             for i, (pt, arg) in enumerate(zip(parameter_types, llvm_function.args)):
                 (parameter, parameter_type) = pt
                 memory = builder.alloca(arg.type, name=parameter.name)
                 builder.store(arg, memory)
                 function_namespace.add_value(
-                    ast.Variable(parameter.name or f'param{i + 1}', parameter_type, memory)
+                    Variable(parameter.name or f'param{i + 1}', parameter_type, memory)
                 )
 
             codegen_statement(function.code_block, module, builder, function_namespace)
@@ -372,7 +371,7 @@ def get_or_create_llvm_function(
     return llvm_function
 
 
-def function_symbol_name(node: ast.Function, namespace: ast.Namespace) -> str:
+def function_symbol_name(node: ast.Function, namespace: Namespace) -> str:
     # TODO: stop hardcoding this?
     if node.code_block is None or node.name == 'main':
         return node.name
@@ -381,7 +380,7 @@ def function_symbol_name(node: ast.Function, namespace: ast.Namespace) -> str:
     return mangle([node.name] + type_values)
 
 
-def get_function_type(node: ast.Function, namespace: ast.Namespace) -> ts.FunctionType:
+def get_function_type(node: ast.Function, namespace: Namespace) -> ts.FunctionType:
     ref = ast.FunctionTypeReference(
         [p.type_ for p in node.parameters], node.return_type, node.parameters.variadic
     )
@@ -391,9 +390,7 @@ def get_function_type(node: ast.Function, namespace: ast.Namespace) -> ts.Functi
 constant_counter = 0
 
 
-def string_constant(
-    module: ir.Module, builder: ir.IRBuilder, s: str, namespace: ast.Namespace
-) -> ir.Constant:
+def string_constant(module: ir.Module, builder: ir.IRBuilder, s: str, namespace: Namespace) -> ir.Constant:
     global constant_counter
     name = f'constant{constant_counter}'
     constant_counter += 1
@@ -409,10 +406,10 @@ def string_constant(
 
 
 def get_pointer(
-    node: ast.Expression, module: ir.Module, builder: ir.IRBuilder, namespace: ast.Namespace
+    node: ast.Expression, module: ir.Module, builder: ir.IRBuilder, namespace: Namespace
 ) -> ir.Value:
     if isinstance(node, ast.VariableReference):
-        value: Union[ast.Function, ast.Variable]
+        value: Union[ast.Function, Variable]
         try:
             value = namespace.get_function(node.name)
         except KeyError:
@@ -444,7 +441,7 @@ def get_pointer(
         )
 
 
-def expression_type(node: ast.Expression, namespace: ast.Namespace) -> ts.Type:  # noqa: C901
+def expression_type(node: ast.Expression, namespace: Namespace) -> ts.Type:  # noqa: C901
     if isinstance(node, (ast.NegativeExpression, ast.BoolNegationExpression)):
         return expression_type(node.expression, namespace)
     elif isinstance(node, ast.BinaryExpression):
@@ -466,7 +463,7 @@ def expression_type(node: ast.Expression, namespace: ast.Namespace) -> ts.Type: 
     elif isinstance(node, ast.BoolLiteral):
         return namespace.get_type('bool')
     elif isinstance(node, ast.VariableReference):
-        value: Union[ast.Function, ast.Variable]
+        value: Union[ast.Function, Variable]
         try:
             function = namespace.get_function(node.name)
         except KeyError:
@@ -504,7 +501,7 @@ def expression_type(node: ast.Expression, namespace: ast.Namespace) -> ts.Type: 
 
 
 def codegen_variable_module_level(
-    node: ast.VariableDeclaration, module: ir.Module, namespace: ast.Namespace, module_name: str
+    node: ast.VariableDeclaration, module: ir.Module, namespace: Namespace, module_name: str
 ) -> None:
     value = node.expression.get_constant_time_value() if node.expression else None
     type_ = variable_type(node, namespace)
@@ -512,10 +509,10 @@ def codegen_variable_module_level(
     variable = ir.GlobalVariable(module, type_.get_ir_type(), mangle([module_name, node.name]))
     variable.initializer = constant
     variable.global_constant = True
-    namespace.add_value(ast.Variable(node.name, type_, variable))
+    namespace.add_value(Variable(node.name, type_, variable))
 
 
-def variable_type(node: ast.VariableDeclaration, namespace: ast.Namespace) -> ts.Type:
+def variable_type(node: ast.VariableDeclaration, namespace: Namespace) -> ts.Type:
     return (
         resolve_type(node.type_, namespace)
         if node.type_ is not None
@@ -523,7 +520,7 @@ def variable_type(node: ast.VariableDeclaration, namespace: ast.Namespace) -> ts
     )
 
 
-def resolve_type(node: ast.TypeReference, namespace: ast.Namespace) -> ts.Type:
+def resolve_type(node: ast.TypeReference, namespace: Namespace) -> ts.Type:
     if isinstance(node, ast.BaseTypeReference):
         return namespace.get_type(node.name)
     elif isinstance(node, ast.ArrayTypeReference):
@@ -538,3 +535,57 @@ def resolve_type(node: ast.TypeReference, namespace: ast.Namespace) -> ts.Type:
         return resolve_type(node.base, namespace).as_pointer()
     else:
         raise AssertionError(f'{type(node).__name__} cannot be used here')
+
+
+_T = TypeVar('_T')
+
+
+@dataclass
+class Namespace:
+    parents: List[Namespace] = field(default_factory=list)
+    types: Dict[str, ts.Type] = field(default_factory=dict)
+    values: Dict[str, Variable] = field(default_factory=dict)
+    functions: Dict[str, ast.Function] = field(default_factory=dict)
+
+    def add_type(self, t: ts.Type, name: Optional[str] = None) -> None:
+        self._add_item(self.types, t, name or t.name)
+
+    def add_value(self, t: Variable) -> None:
+        self._add_item(self.values, t, t.name)
+
+    def add_function(self, t: ast.Function) -> None:
+        self._add_item(self.functions, t, t.name)
+
+    def _add_item(self, sub: Dict[str, _T], item: _T, name: str) -> None:
+        # This method mutates sub
+        assert name not in sub, name
+        sub[name] = item
+
+    def get_type(self, name: str) -> ts.Type:
+        return cast(ts.Type, self._get_item('types', name))
+
+    def get_value(self, name: str) -> Variable:
+        return cast(Variable, self._get_item('values', name))
+
+    def get_function(self, name: str) -> ast.Function:
+        return cast(ast.Function, self._get_item('functions', name))
+
+    def _get_item(self, sub_name: str, name: str) -> Any:
+        sub = getattr(self, sub_name)
+        try:
+            result = sub[name]
+            return result
+        except KeyError:
+            for p in self.parents:
+                try:
+                    return p._get_item(sub_name, name)
+                except KeyError:
+                    pass
+            raise KeyError(name)
+
+
+@dataclass
+class Variable:
+    name: str
+    type_: ts.Type
+    value: ir.Value
