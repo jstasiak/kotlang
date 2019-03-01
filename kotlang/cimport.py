@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import platform
-from typing import Dict, Iterable, List, Union
+from typing import Dict, Iterable, List
 
 from kotlang import ast
 

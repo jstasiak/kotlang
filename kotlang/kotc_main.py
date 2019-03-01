@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 import contextlib
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time
-from typing import Any, cast, IO, Iterator, Optional
+from typing import cast, IO, Iterator, Optional
 
 import click
 from llvmlite import binding as llvm, ir
 
 from kotlang.context import Context
-from kotlang.lexer import lex
 
 
 class Emitter:

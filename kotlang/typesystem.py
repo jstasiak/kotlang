@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, cast, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, cast, List, Optional, Tuple
 
 from llvmlite import ir
 
