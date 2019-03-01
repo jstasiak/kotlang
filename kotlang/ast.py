@@ -15,14 +15,11 @@ from typing import (
     MutableMapping,
     Optional,
     Tuple,
-    Type as TypingType,
-    Union as TypingUnion,
 )
 
 from llvmlite import ir
 
 from kotlang import typesystem as ts
-from kotlang.symbols import mangle
 
 
 class Node:
