@@ -52,14 +52,6 @@ class Function:
     def is_generic(self) -> bool:
         return bool(self.type_parameters)
 
-    def symbol_name(self, namespace: Namespace) -> str:
-        # TODO: stop hardcoding this?
-        if self.code_block is None or self.name == 'main':
-            return self.name
-
-        type_values = [namespace.get_type(t).name for t in self.type_parameters]
-        return mangle([self.name] + type_values)
-
 
 @dataclass
 class Module:

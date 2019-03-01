@@ -335,7 +335,7 @@ def namespace_for_specialized_function(
 def get_or_create_llvm_function(
     module: ir.Module, namespace: ast.Namespace, function: ast.Function
 ) -> ir.Function:
-    symbol_name = function.symbol_name(namespace)
+    symbol_name = function_symbol_name(function, namespace)
     try:
         llvm_function = module.globals[symbol_name]
         assert isinstance(llvm_function, ir.Function)
@@ -370,6 +370,15 @@ def get_or_create_llvm_function(
                     builder.unreachable()
 
     return llvm_function
+
+
+def function_symbol_name(node: ast.Function, namespace: ast.Namespace) -> str:
+    # TODO: stop hardcoding this?
+    if node.code_block is None or node.name == 'main':
+        return node.name
+
+    type_values = [namespace.get_type(t).name for t in node.type_parameters]
+    return mangle([node.name] + type_values)
 
 
 def get_function_type(node: ast.Function, namespace: ast.Namespace) -> ts.FunctionType:
