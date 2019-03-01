@@ -39,12 +39,6 @@ class StructUnion:
     def get_dummy_type(self) -> ts.StructUnionType:
         return ts.StructUnionType(self.name, [], self.is_union)
 
-    def fill_type_members(self, namespace: Namespace, type_: ts.Type) -> None:
-        # Note: This method mutates type_
-        assert isinstance(type_, ts.StructUnionType)
-        members = [(n, t.codegen(namespace)) for n, t in self.members]
-        type_.members = members
-
 
 @dataclass
 class Function:
@@ -65,12 +59,6 @@ class Function:
 
         type_values = [namespace.get_type(t).name for t in self.type_parameters]
         return mangle([self.name] + type_values)
-
-    def get_type(self, namespace: Namespace) -> ts.FunctionType:
-        ref = FunctionTypeReference(
-            [p.type_ for p in self.parameters], self.return_type, self.parameters.variadic
-        )
-        return ref.codegen(namespace)
 
 
 @dataclass
@@ -315,9 +303,6 @@ class IndexAccess(MemoryReference):
 
 
 class TypeReference:
-    def codegen(self, namespace: Namespace) -> ts.Type:
-        raise NotImplementedError()
-
     def as_pointer(self) -> PointerTypeReference:
         return PointerTypeReference(self)
 
@@ -329,9 +314,6 @@ class TypeReference:
 class BaseTypeReference(TypeReference):
     name: str
 
-    def codegen(self, namespace: Namespace) -> ts.Type:
-        return namespace.get_type(self.name)
-
     def most_basic_type(self) -> BaseTypeReference:
         return self
 
@@ -340,10 +322,6 @@ class BaseTypeReference(TypeReference):
 class ArrayTypeReference(TypeReference):
     base: TypeReference
     length: Expression
-
-    def codegen(self, namespace: Namespace) -> ts.Type:
-        assert isinstance(self.length, IntegerLiteral)
-        return ts.ArrayType(self.base.codegen(namespace), int(self.length.text))
 
     def most_basic_type(self) -> TypeReference:
         return self.base.most_basic_type()
@@ -355,11 +333,6 @@ class FunctionTypeReference(TypeReference):
     return_type: TypeReference
     variadic: bool
 
-    def codegen(self, namespace: Namespace) -> ts.FunctionType:
-        return_type = self.return_type.codegen(namespace)
-        parameter_types = [t.codegen(namespace) for t in self.parameter_types]
-        return ts.FunctionType(parameter_types, return_type, self.variadic)
-
     def most_basic_type(self) -> FunctionTypeReference:
         return self
 
@@ -367,9 +340,6 @@ class FunctionTypeReference(TypeReference):
 @dataclass
 class PointerTypeReference(TypeReference):
     base: TypeReference
-
-    def codegen(self, namespace: Namespace) -> ts.PointerType:
-        return self.base.codegen(namespace).as_pointer()
 
     def most_basic_type(self) -> TypeReference:
         return self.base.most_basic_type()

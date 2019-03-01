@@ -18,7 +18,7 @@ def codegen_module(
     for _, t in definitions_types:
         module_namespace.add_type(t)
     for td, t in definitions_types:
-        td.fill_type_members(module_namespace, t)
+        fill_structunion_members(td, module_namespace, t)
 
     for f in node.functions:
         module_namespace.add_function(f)
@@ -31,6 +31,15 @@ def codegen_module(
         get_or_create_llvm_function(module, module_namespace, f)
 
     return module_namespace
+
+
+def fill_structunion_members(
+    node: ast.StructUnion, namespace: ast.Namespace, type_: ts.StructUnionType
+) -> None:
+    # Note: This method mutates type_
+    assert isinstance(type_, ts.StructUnionType)
+    members = [(n, resolve_type(t, namespace)) for n, t in node.members]
+    type_.members = members
 
 
 def codegen_statement(  # noqa: C901
@@ -187,7 +196,7 @@ def codegen_expression(  # noqa: C901
             if function.is_generic:
                 namespace = namespace_for_specialized_function(namespace, function, node.parameters)
 
-            ft = function.get_type(namespace)
+            ft = get_function_type(function, namespace)
             parameter_types = ft.parameter_types
             # TODO: eliminate this "or ''" below
             parameter_names = [p.name or '' for p in function.parameters]
@@ -331,7 +340,7 @@ def get_or_create_llvm_function(
         llvm_function = module.globals[symbol_name]
         assert isinstance(llvm_function, ir.Function)
     except KeyError:
-        ft = function.get_type(namespace)
+        ft = get_function_type(function, namespace)
         ir_ft = ft.get_ir_type()
 
         llvm_function = ir.Function(module, ir_ft, name=symbol_name)
@@ -361,6 +370,13 @@ def get_or_create_llvm_function(
                     builder.unreachable()
 
     return llvm_function
+
+
+def get_function_type(node: ast.Function, namespace: ast.Namespace) -> ts.FunctionType:
+    ref = ast.FunctionTypeReference(
+        [p.type_ for p in node.parameters], node.return_type, node.parameters.variadic
+    )
+    return cast(ts.FunctionType, resolve_type(ref, namespace))
 
 
 constant_counter = 0
@@ -448,7 +464,7 @@ def expression_type(node: ast.Expression, namespace: ast.Namespace) -> ts.Type: 
             variable = namespace.get_value(node.name)
             return variable.type_
         else:
-            return function.get_type(namespace)
+            return get_function_type(function, namespace)
     elif isinstance(node, ast.AddressOf):
         return namespace.get_value(node.variable.name).type_.as_pointer()
     elif isinstance(node, ast.ValueAt):
@@ -492,7 +508,24 @@ def codegen_variable_module_level(
 
 def variable_type(node: ast.VariableDeclaration, namespace: ast.Namespace) -> ts.Type:
     return (
-        node.type_.codegen(namespace)
+        resolve_type(node.type_, namespace)
         if node.type_ is not None
         else expression_type(cast(ast.Expression, node.expression), namespace)
     )
+
+
+def resolve_type(node: ast.TypeReference, namespace: ast.Namespace) -> ts.Type:
+    if isinstance(node, ast.BaseTypeReference):
+        return namespace.get_type(node.name)
+    elif isinstance(node, ast.ArrayTypeReference):
+        assert isinstance(node.length, ast.IntegerLiteral)
+        base_type = resolve_type(node.base, namespace)
+        return ts.ArrayType(base_type, int(node.length.text))
+    elif isinstance(node, ast.FunctionTypeReference):
+        return_type = resolve_type(node.return_type, namespace)
+        parameter_types = [resolve_type(t, namespace) for t in node.parameter_types]
+        return ts.FunctionType(parameter_types, return_type, node.variadic)
+    elif isinstance(node, ast.PointerTypeReference):
+        return resolve_type(node.base, namespace).as_pointer()
+    else:
+        raise AssertionError(f'{type(node).__name__} cannot be used here')
