@@ -3,6 +3,7 @@ from typing import List, Tuple, Union
 from kotlang import ast
 from kotlang.itertools import Peekable
 from kotlang.lexer import lex, Token, TokenType
+from kotlang.span import LineColumn
 
 
 def parse(text: str, filename: str) -> ast.Module:
@@ -10,13 +11,15 @@ def parse(text: str, filename: str) -> ast.Module:
     try:
         module = read_module(tokens)
     except UnexpectedToken as e:
-        error_context = context_with_pointer(text, e.token.span.line, e.token.span.column)
+        error_context = context_with_pointer(text, e.token.span.lo)
         raise ParseError(error_context, str(e))
     return module
 
 
-def context_with_pointer(text: str, line: int, column: int) -> str:
+def context_with_pointer(text: str, lc: LineColumn) -> str:
     lines = text.split('\n')
+    line = lc.line
+    column = lc.column
     return '\n'.join(
         [
             '// ...',

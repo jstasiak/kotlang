@@ -2,7 +2,7 @@ import dataclasses
 import enum
 from typing import Iterator, Tuple
 
-from kotlang.span import dummy_span, Span
+from kotlang.span import dummy_span, LineColumn, Span
 
 
 class TokenType(enum.Enum):
@@ -41,8 +41,7 @@ def provide_spans(tokens: Iterator[Token], filename: str) -> Iterator[Token]:
     column = 0
 
     for t in tokens:
-        t = dataclasses.replace(t, span=Span(line, column, filename))
-        yield t
+        lo = LineColumn(line, column)
         line += t.text.count('\n')
         has_newline = '\n' in t.text
         # FIXME: dependong in its position tab doesn't have to be displayed as 8 characters
@@ -51,6 +50,8 @@ def provide_spans(tokens: Iterator[Token], filename: str) -> Iterator[Token]:
             column = columns_in_this_token
         else:
             column += columns_in_this_token
+        t = dataclasses.replace(t, span=Span(lo, LineColumn(line, column), filename))
+        yield t
 
 
 def only_important_tokens(tokens: Iterator[Token]) -> Iterator[Token]:
