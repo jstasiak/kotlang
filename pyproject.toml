@@ -1,5 +1,5 @@
 [tool.black]
 line-length = 110
-py36 = true
+target_version = ['py36', 'py37']
 skip_string_normalization = true
 exclude = 'clang/'
