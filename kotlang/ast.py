@@ -25,10 +25,10 @@ class StructUnion:
 
 @dataclass
 class Function:
-    name: str
+    name: Identifier
     parameters: ParameterList
     return_type: TypeReference
-    type_parameters: List[str]
+    type_parameters: List[Identifier]
     code_block: Optional[CodeBlock]
 
     @property

@@ -99,7 +99,7 @@ def merge_header_contents_into_module(headers_contents: Iterable[HeaderContents]
 
     for hc in headers_contents:
         types.update({s.name.text: s for s in hc.types})
-        functions.update({f.name: f for f in hc.functions})
+        functions.update({f.name.text: f for f in hc.functions})
         variables.update({v.name: v for v in hc.variables})
 
     # HACK: libclang resolves va_list to __va_list_tag structure but the definition of the structure
@@ -119,7 +119,7 @@ def convert_c_function_declaration(declaration: cindex.Cursor) -> ast.Function:
     parameters = ast.ParameterList(
         [ast.Parameter(n, t) for (n, t) in parameter_names_types], declaration.type.is_function_variadic()
     )
-    return ast.Function(declaration.spelling, parameters, return_type, [], None)
+    return ast.Function(ast.Identifier(dummy_span, declaration.spelling), parameters, return_type, [], None)
 
 
 def convert_c_record_definition(declaration: cindex.Cursor) -> ast.StructUnion:

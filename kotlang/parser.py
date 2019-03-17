@@ -168,14 +168,14 @@ def read_cimport(tokens: Peekable[Token]) -> str:
 
 def read_function_header(
     tokens: Peekable[Token]
-) -> Tuple[str, List[str], ast.ParameterList, ast.TypeReference]:
+) -> Tuple[ast.Identifier, List[ast.Identifier], ast.ParameterList, ast.TypeReference]:
     expect(tokens, 'def')
-    name = expect(tokens, TokenType.identifier)
+    name = read_identifier(tokens)
     type_parameters = []
     if tokens.peek().text == '<':
         next(tokens)
         while tokens.peek().text != '>':
-            type_ = expect(tokens, TokenType.identifier).text
+            type_ = read_identifier(tokens)
             type_parameters.append(type_)
             if tokens.peek().text != ',':
                 assert tokens.peek().text == '>'
@@ -189,7 +189,7 @@ def read_function_header(
         return_type = read_type_reference(tokens)
     else:
         return_type = ast.BaseTypeReference('void')
-    return name.text, type_parameters, parameters, return_type
+    return name, type_parameters, parameters, return_type
 
 
 def read_function_parameters(tokens: Peekable[Token]) -> ast.ParameterList:

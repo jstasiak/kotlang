@@ -317,10 +317,11 @@ def namespace_for_specialized_function(
     namespace: Namespace, function: ast.Function, arguments: Collection[ast.Expression]
 ) -> Namespace:
     mapping: Dict[str, ts.Type] = {}
+    function_type_parameters_by_text = {n.text: n for n in function.type_parameters}
     for parameter, expression in zip(function.parameters, arguments):
         assert isinstance(parameter.type_, ast.BaseTypeReference), 'TODO support pointers etc. here'
         type_name = parameter.type_.name
-        if type_name in function.type_parameters:
+        if type_name in function_type_parameters_by_text:
             deduced_type = expression_type(expression, namespace)
             assert type_name not in mapping or mapping[type_name] == deduced_type
             mapping[type_name] = deduced_type
@@ -373,11 +374,11 @@ def get_or_create_llvm_function(
 
 def function_symbol_name(node: ast.Function, namespace: Namespace) -> str:
     # TODO: stop hardcoding this?
-    if node.code_block is None or node.name == 'main':
-        return node.name
+    if node.code_block is None or node.name.text == 'main':
+        return node.name.text
 
-    type_values = [namespace.get_type(t).name for t in node.type_parameters]
-    return mangle([node.name] + type_values)
+    type_values = [namespace.get_type(t.text).name for t in node.type_parameters]
+    return mangle([node.name.text] + type_values)
 
 
 def get_function_type(node: ast.Function, namespace: Namespace) -> ts.FunctionType:
@@ -554,7 +555,7 @@ class Namespace:
         self._add_item(self.values, t, t.name)
 
     def add_function(self, t: ast.Function) -> None:
-        self._add_item(self.functions, t, t.name)
+        self._add_item(self.functions, t, t.name.text)
 
     def _add_item(self, sub: Dict[str, _T], item: _T, name: str) -> None:
         # This method mutates sub
