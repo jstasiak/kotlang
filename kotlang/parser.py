@@ -436,13 +436,13 @@ def read_primary_expression(tokens: Peekable[Token]) -> ast.Expression:  # noqa:
         expect(tokens, ']')
         to_return = ast.ArrayLiteral(values)
     elif next_token.type is TokenType.string_literal:
-        to_return = ast.StringLiteral(next_token.text)
+        to_return = ast.StringLiteral(next_token.span, next_token.text)
     elif next_token.type is TokenType.integer_literal:
-        to_return = ast.IntegerLiteral(next_token.text)
+        to_return = ast.IntegerLiteral(next_token.span, next_token.text)
     elif next_token.type is TokenType.float_literal:
-        to_return = ast.FloatLiteral(next_token.text)
+        to_return = ast.FloatLiteral(next_token.span, next_token.text)
     elif next_token.type is TokenType.bool_literal:
-        to_return = ast.BoolLiteral(next_token.text == 'true')
+        to_return = ast.BoolLiteral(next_token.span, next_token.text == 'true')
     elif next_token.text == '&':
         subexpression = read_primary_expression(tokens)
         # TODO: make this nicer

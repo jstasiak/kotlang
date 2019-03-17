@@ -149,7 +149,7 @@ class StructInstantiation(Expression):
 
 
 @dataclass
-class StringLiteral(Expression):
+class StringLiteral(Node, Expression):
     text: str
 
     def __post_init__(self) -> None:
@@ -161,7 +161,7 @@ def evaluate_escape_sequences(text: str) -> str:
 
 
 @dataclass
-class IntegerLiteral(Expression):
+class IntegerLiteral(Node, Expression):
     text: str
 
     def get_constant_time_value(self) -> Any:
@@ -169,12 +169,12 @@ class IntegerLiteral(Expression):
 
 
 @dataclass
-class FloatLiteral(Expression):
+class FloatLiteral(Node, Expression):
     text: str
 
 
 @dataclass
-class BoolLiteral(Expression):
+class BoolLiteral(Node, Expression):
     value: bool
 
 

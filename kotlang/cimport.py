@@ -72,7 +72,7 @@ def read_header(header: str) -> HeaderContents:
     for name, token in defines.items():
         # TODO: import things other than ints here - recursively expand macros and import strings
         if token.kind is cindex.TokenKind.LITERAL and token.spelling.isdigit():  # type: ignore
-            variables.append(ast.VariableDeclaration(name, ast.IntegerLiteral(token.spelling)))
+            variables.append(ast.VariableDeclaration(name, ast.IntegerLiteral(dummy_span, token.spelling)))
 
     return HeaderContents(types, functions, variables)
 
