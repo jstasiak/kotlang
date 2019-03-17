@@ -157,13 +157,13 @@ def read_import(tokens: Peekable[Token]) -> str:
     return module_name
 
 
-def read_cimport(tokens: Peekable[Token]) -> str:
+def read_cimport(tokens: Peekable[Token]) -> ast.StringLiteral:
     # CImport = "cimport" StringLiteral ";";
     expect(tokens, 'cimport')
-    header = expect(tokens, TokenType.string_literal).text
+    header = expect(tokens, TokenType.string_literal)
     expect(tokens, ';')
     # Stripping first and last quotation mark characters because that's what string literals have
-    return header[1:-1]
+    return ast.StringLiteral(header.span, header.text[1:-1])
 
 
 def read_function_header(

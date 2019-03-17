@@ -58,7 +58,7 @@ class Context:
                 modules_to_parse.extend(
                     ('by_name', m) for m in modules_needed_by_this_module - modules.keys()
                 )
-                includes_to_parse.update(module.includes)
+                includes_to_parse.update((i.text for i in module.includes))
 
         with self.timed('Reading C headers'):
             includes = {i: read_header(i) for i in includes_to_parse}
@@ -81,7 +81,7 @@ class Context:
                 module = modules[name]
                 parent_namespaces = [namespaces[i] for i in module.imports] + [builtin_namespace]
                 if module.includes:
-                    headers_contents = [includes[i] for i in module.includes]
+                    headers_contents = [includes[i.text] for i in module.includes]
                     c_module = merge_header_contents_into_module(headers_contents)
                     c_namespace = codegen.codegen_module(
                         c_module, ir_module, [builtin_namespace], name + '_c'

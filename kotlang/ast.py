@@ -41,7 +41,7 @@ class Module:
     types: List[StructUnion]
     functions: List[Function]
     imports: List[str]
-    includes: List[str]
+    includes: List[StringLiteral]
     variables: List[VariableDeclaration]
 
 
