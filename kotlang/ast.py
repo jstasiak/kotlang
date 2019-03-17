@@ -3,15 +3,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Iterator, List, Optional, Tuple
 
+from kotlang.span import dummy_span, Span
 
+
+@dataclass
 class Node:
-    pass
+    span: Span
+
+
+@dataclass
+class Identifier(Node):
+    text: str
 
 
 @dataclass
 class StructUnion:
-    name: str
-    members: List[Tuple[str, TypeReference]]
+    name: Identifier
+    members: List[Tuple[Identifier, TypeReference]]
     is_union: bool
 
 
@@ -277,13 +285,16 @@ def get_builtin_va_list_struct() -> StructUnion:
     # NOTE: this is Clang-specific and x86 64-bit ABI-specific
     # TODO: make this platform independent?
     return StructUnion(
-        '__va_list_tag',
+        Identifier(dummy_span, '__va_list_tag'),
         [
-            ('gp_offset', BaseTypeReference('i32')),
-            ('fp_offset', BaseTypeReference('i32')),
-            # Those pointer are void* originally, but LLVM IR doesn't support that, so...
-            ('overflow_arg_area', BaseTypeReference('i8').as_pointer()),
-            ('reg_save_area', BaseTypeReference('i8').as_pointer()),
+            (Identifier(dummy_span, name), ref)
+            for name, ref in [
+                ('gp_offset', BaseTypeReference('i32')),
+                ('fp_offset', BaseTypeReference('i32')),
+                # Those pointer are void* originally, but LLVM IR doesn't support that, so...
+                ('overflow_arg_area', BaseTypeReference('i8').as_pointer()),
+                ('reg_save_area', BaseTypeReference('i8').as_pointer()),
+            ]
         ],
         False,
     )

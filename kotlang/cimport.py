@@ -6,6 +6,9 @@ import platform
 from typing import Dict, Iterable, List
 
 from kotlang import ast
+from kotlang.span import dummy_span
+
+# TODO: Stop using dummy_span here
 
 # Paths are hardcoded, can't be bothered to detect them at the moment
 if platform.system() == 'Linux':
@@ -95,7 +98,7 @@ def merge_header_contents_into_module(headers_contents: Iterable[HeaderContents]
     variables = {}
 
     for hc in headers_contents:
-        types.update({s.name: s for s in hc.types})
+        types.update({s.name.text: s for s in hc.types})
         functions.update({f.name: f for f in hc.functions})
         variables.update({v.name: v for v in hc.variables})
 
@@ -103,7 +106,7 @@ def merge_header_contents_into_module(headers_contents: Iterable[HeaderContents]
     # is defined internally by Clang and not returned as part of the AST. In order to fully process
     # types and functions referring to __va_list_tag we need to provide a definition.
     builtin_va_list = ast.get_builtin_va_list_struct()
-    types[builtin_va_list.name] = builtin_va_list
+    types[builtin_va_list.name.text] = builtin_va_list
     return ast.Module(list(types.values()), list(functions.values()), [], [], list(variables.values()))
 
 
@@ -131,11 +134,14 @@ def convert_c_record_definition(declaration: cindex.Cursor) -> ast.StructUnion:
             this_type = 'union'
     else:
         assert declaration.kind is cindex.CursorKind.STRUCT_DECL  # type: ignore
-    members = [(c.spelling, convert_c_type_reference(c.type)) for c in declaration.type.get_fields()]
+    members = [
+        (ast.Identifier(dummy_span, c.spelling), convert_c_type_reference(c.type))
+        for c in declaration.type.get_fields()
+    ]
     if this_type == 'struct':
-        return ast.StructUnion(name, members, False)
+        return ast.StructUnion(ast.Identifier(dummy_span, name), members, False)
     else:
-        return ast.StructUnion(name, members, True)
+        return ast.StructUnion(ast.Identifier(dummy_span, name), members, True)
 
 
 def convert_c_type_reference(ref: cindex.Type) -> ast.TypeReference:

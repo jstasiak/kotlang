@@ -15,7 +15,7 @@ def codegen_module(
 ) -> Namespace:
     module_namespace = Namespace(parents=parent_namespaces)
 
-    definitions_types = [(td, ts.StructUnionType(td.name, [], td.is_union)) for td in node.types]
+    definitions_types = [(td, ts.StructUnionType(td.name.text, [], td.is_union)) for td in node.types]
     for _, t in definitions_types:
         module_namespace.add_type(t)
     for td, t in definitions_types:
@@ -37,7 +37,7 @@ def codegen_module(
 def fill_structunion_members(node: ast.StructUnion, namespace: Namespace, type_: ts.StructUnionType) -> None:
     # Note: This method mutates type_
     assert isinstance(type_, ts.StructUnionType)
-    members = [(n, resolve_type(t, namespace)) for n, t in node.members]
+    members = [(n.text, resolve_type(t, namespace)) for n, t in node.members]
     type_.members = members
 
 

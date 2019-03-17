@@ -71,6 +71,11 @@ def expect_no_eat(tokens: Peekable[Token], *what: ExpectedTokenT) -> Token:
     raise UnexpectedToken(next_token, list(what))
 
 
+def read_identifier(tokens: Peekable[Token]) -> ast.Identifier:
+    token = expect(tokens, TokenType.identifier)
+    return ast.Identifier(token.span, token.text)
+
+
 def read_module(tokens: Peekable[Token]) -> ast.Module:
     # Module = (FunctionDefinition | FunctionDeclaration | StructDefinition)*;
     functions = []
@@ -100,7 +105,7 @@ def read_struct_definition(tokens: Peekable[Token]) -> ast.StructUnion:
     # StructMembers = StructMember ";" [StructMembers] | empty;
     # StructMember = name ":" name;
     expect(tokens, 'struct')
-    name = expect(tokens, TokenType.identifier).text
+    name = read_identifier(tokens)
     members = read_struct_body(tokens)
     return ast.StructUnion(name, members, False)
 
@@ -110,23 +115,23 @@ def read_union_definition(tokens: Peekable[Token]) -> ast.StructUnion:
     # UnionMembers = UnionMember ";" [UnionMembers] | empty;
     # UnionMember = name ":" name;
     expect(tokens, 'union')
-    name = expect(tokens, TokenType.identifier).text
+    name = read_identifier(tokens)
     members = read_struct_body(tokens)
     return ast.StructUnion(name, members, True)
 
 
-def read_struct_body(tokens: Peekable[Token]) -> List[Tuple[str, ast.TypeReference]]:
+def read_struct_body(tokens: Peekable[Token]) -> List[Tuple[ast.Identifier, ast.TypeReference]]:
     expect(tokens, '{')
 
-    members: List[Tuple[str, ast.TypeReference]] = []
+    members: List[Tuple[ast.Identifier, ast.TypeReference]] = []
 
     while tokens.peek().text != '}':
-        member_name = expect(tokens, TokenType.identifier)
+        member_name = read_identifier(tokens)
         expect(tokens, ':')
         member_type = read_type_reference(tokens)
         expect(tokens, ';')
         assert member_name.text not in members
-        members.append((member_name.text, member_type))
+        members.append((member_name, member_type))
     expect(tokens, '}')
     return members
 
