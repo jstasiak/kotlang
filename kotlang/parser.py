@@ -162,7 +162,6 @@ def read_cimport(tokens: Peekable[Token]) -> ast.StringLiteral:
     expect(tokens, 'cimport')
     header = expect(tokens, TokenType.string_literal)
     expect(tokens, ';')
-    # Stripping first and last quotation mark characters because that's what string literals have
     return ast.StringLiteral(header.span, header.text[1:-1])
 
 
@@ -436,7 +435,7 @@ def read_primary_expression(tokens: Peekable[Token]) -> ast.Expression:  # noqa:
         expect(tokens, ']')
         to_return = ast.ArrayLiteral(values)
     elif next_token.type is TokenType.string_literal:
-        to_return = ast.StringLiteral(next_token.span, next_token.text)
+        to_return = ast.StringLiteral(next_token.span, next_token.text[1:-1])
     elif next_token.type is TokenType.integer_literal:
         to_return = ast.IntegerLiteral(next_token.span, next_token.text)
     elif next_token.type is TokenType.float_literal:

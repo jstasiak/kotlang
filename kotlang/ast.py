@@ -150,6 +150,7 @@ class StructInstantiation(Expression):
 
 @dataclass
 class StringLiteral(Node, Expression):
+    # text is not supposed to contain the quotation marks surrounding the literal
     text: str
 
     def __post_init__(self) -> None:

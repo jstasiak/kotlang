@@ -236,7 +236,7 @@ def codegen_expression(  # noqa: C901
 
         return value
     elif isinstance(node, ast.StringLiteral):
-        return string_constant(module, builder, node.text[1:-1], namespace)
+        return string_constant(module, builder, node.text, namespace)
     elif isinstance(node, ast.IntegerLiteral):
         value = int(node.text)
         return namespace.get_type('i64').get_ir_type()(value)
