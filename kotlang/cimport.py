@@ -139,7 +139,9 @@ def convert_c_record_definition(declaration: cindex.Cursor) -> ast.StructUnion:
     else:
         assert declaration.kind is cindex.CursorKind.STRUCT_DECL  # type: ignore
     members = [
-        (ast.Identifier(dummy_span, c.spelling), convert_c_type_reference(c.type))
+        ast.VariableDeclaration(
+            ast.Identifier(dummy_span, c.spelling), None, convert_c_type_reference(c.type)
+        )
         for c in declaration.type.get_fields()
     ]
     if this_type == 'struct':

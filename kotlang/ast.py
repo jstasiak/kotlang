@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Iterable, Iterator, List, Optional
 
 from kotlang.span import dummy_span, Span
 
@@ -19,7 +19,7 @@ class Identifier(Node):
 @dataclass
 class StructUnion:
     name: Identifier
-    members: List[Tuple[Identifier, TypeReference]]
+    members: List[VariableDeclaration]
     is_union: bool
 
 
@@ -288,7 +288,7 @@ def get_builtin_va_list_struct() -> StructUnion:
     return StructUnion(
         Identifier(dummy_span, '__va_list_tag'),
         [
-            (Identifier(dummy_span, name), ref)
+            VariableDeclaration(Identifier(dummy_span, name), None, ref)
             for name, ref in [
                 ('gp_offset', BaseTypeReference('i32')),
                 ('fp_offset', BaseTypeReference('i32')),

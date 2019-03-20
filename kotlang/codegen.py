@@ -37,7 +37,7 @@ def codegen_module(
 def fill_structunion_members(node: ast.StructUnion, namespace: Namespace, type_: ts.StructUnionType) -> None:
     # Note: This method mutates type_
     assert isinstance(type_, ts.StructUnionType)
-    members = [(n.text, resolve_type(t, namespace)) for n, t in node.members]
+    members = [(m.name.text, resolve_type(cast(ast.TypeReference, m.type_), namespace)) for m in node.members]
     type_.members = members
 
 

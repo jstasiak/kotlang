@@ -120,17 +120,17 @@ def read_union_definition(tokens: Peekable[Token]) -> ast.StructUnion:
     return ast.StructUnion(name, members, True)
 
 
-def read_struct_body(tokens: Peekable[Token]) -> List[Tuple[ast.Identifier, ast.TypeReference]]:
+def read_struct_body(tokens: Peekable[Token]) -> List[ast.VariableDeclaration]:
     expect(tokens, '{')
 
-    members: List[Tuple[ast.Identifier, ast.TypeReference]] = []
+    members: List[ast.VariableDeclaration] = []
 
     while tokens.peek().text != '}':
         member_name = read_identifier(tokens)
         expect(tokens, ':')
         member_type = read_type_reference(tokens)
         expect(tokens, ';')
-        members.append((member_name, member_type))
+        members.append(ast.VariableDeclaration(member_name, None, member_type))
     expect(tokens, '}')
     return members
 
