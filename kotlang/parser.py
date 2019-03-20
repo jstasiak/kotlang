@@ -130,7 +130,6 @@ def read_struct_body(tokens: Peekable[Token]) -> List[Tuple[ast.Identifier, ast.
         expect(tokens, ':')
         member_type = read_type_reference(tokens)
         expect(tokens, ';')
-        assert member_name.text not in members
         members.append((member_name, member_type))
     expect(tokens, '}')
     return members
