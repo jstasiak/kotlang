@@ -102,8 +102,8 @@ def codegen_statement(  # noqa: C901
             # dealing with function pointers. See if this can be ironed out. If it can't then see
             # if the abstraction is right.
             ir_type = ir_type.as_pointer()
-        memory = builder.alloca(ir_type, name=node.name)
-        namespace.add_value(Variable(node.name, type_, memory))
+        memory = builder.alloca(ir_type, name=node.name.text)
+        namespace.add_value(Variable(node.name.text, type_, memory))
         if node.expression is not None:
             value = codegen_expression(node.expression, module, builder, namespace)
             adapted_value = type_.adapt(builder, value, expression_type(node.expression, namespace))
@@ -507,10 +507,10 @@ def codegen_variable_module_level(
     value = node.expression.get_constant_time_value() if node.expression else None
     type_ = variable_type(node, namespace)
     constant = ir.Constant(type_.get_ir_type(), value)
-    variable = ir.GlobalVariable(module, type_.get_ir_type(), mangle([module_name, node.name]))
+    variable = ir.GlobalVariable(module, type_.get_ir_type(), mangle([module_name, node.name.text]))
     variable.initializer = constant
     variable.global_constant = True
-    namespace.add_value(Variable(node.name, type_, variable))
+    namespace.add_value(Variable(node.name.text, type_, variable))
 
 
 def variable_type(node: ast.VariableDeclaration, namespace: Namespace) -> ts.Type:

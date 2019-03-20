@@ -480,7 +480,7 @@ def read_array_initializers(tokens: Peekable[Token]) -> List[ast.Expression]:
 def read_variable_declaration(tokens: Peekable[Token]) -> ast.VariableDeclaration:
     # VariableDeclaration = "let" name (":" name | "=" AddExpression | ":" name "=" AddExpression);
     expect(tokens, 'let')
-    name = expect(tokens, TokenType.identifier).text
+    name = read_identifier(tokens)
 
     type_ = None
     if tokens.peek().text == ':':

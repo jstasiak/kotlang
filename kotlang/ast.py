@@ -99,7 +99,7 @@ class ReturnStatement(Statement):
 
 @dataclass
 class VariableDeclaration(Statement):
-    name: str
+    name: Identifier
     expression: Optional[Expression]
     type_: Optional[TypeReference] = None
 

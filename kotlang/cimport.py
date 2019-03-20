@@ -72,7 +72,11 @@ def read_header(header: str) -> HeaderContents:
     for name, token in defines.items():
         # TODO: import things other than ints here - recursively expand macros and import strings
         if token.kind is cindex.TokenKind.LITERAL and token.spelling.isdigit():  # type: ignore
-            variables.append(ast.VariableDeclaration(name, ast.IntegerLiteral(dummy_span, token.spelling)))
+            variables.append(
+                ast.VariableDeclaration(
+                    ast.Identifier(dummy_span, name), ast.IntegerLiteral(dummy_span, token.spelling)
+                )
+            )
 
     return HeaderContents(types, functions, variables)
 
@@ -100,7 +104,7 @@ def merge_header_contents_into_module(headers_contents: Iterable[HeaderContents]
     for hc in headers_contents:
         types.update({s.name.text: s for s in hc.types})
         functions.update({f.name.text: f for f in hc.functions})
-        variables.update({v.name: v for v in hc.variables})
+        variables.update({v.name.text: v for v in hc.variables})
 
     # HACK: libclang resolves va_list to __va_list_tag structure but the definition of the structure
     # is defined internally by Clang and not returned as part of the AST. In order to fully process
