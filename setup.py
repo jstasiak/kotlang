@@ -6,7 +6,7 @@ if __name__ == '__main__':
         name='kotlang',
         license='MIT',
         packages=['kotlang'],
-        install_requires=['llvmlite>=0.23.2', 'click'],
+        install_requires=['llvmlite>=0.28.0', 'click'],
         extras_require={
             'dev': [
                 'black',
